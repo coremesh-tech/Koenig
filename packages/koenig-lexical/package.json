@@ -10,6 +10,9 @@
     "README.md",
     "dist/"
   ],
+  "publishConfig": {
+    "registry": "http://localhost:4873"
+  },
   "main": "./dist/koenig-lexical.umd.js",
   "module": "./dist/koenig-lexical.js",
   "exports": {
