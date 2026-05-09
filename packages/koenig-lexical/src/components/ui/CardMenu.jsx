@@ -17,7 +17,7 @@ export const CardMenuSection = ({label, children, ...props}) => {
                 className="flex items-center justify-between px-4 pb-2 pt-3 uppercase"
                 data-card-menu-section="label"
                 style={{minWidth: 'calc(100% - 3.2rem)'}}
-            >{label}
+            >{label}test
                 {helpLink && <a href={helpLink} rel="noreferrer" target='_blank'>
                     <ExternalLinkIcon className="-m-1 size-6 cursor-pointer p-1 transition-all hover:text-green-600" />
                 </a>}

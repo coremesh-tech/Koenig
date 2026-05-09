@@ -9,6 +9,9 @@
   "eslintIgnore": [
     "**/node_modules/**"
   ],
+  "publishConfig": {
+    "registry": "http://localhost:4873"
+  },
   "scripts": {
     "dev": "yarn workspace @tryghost/koenig-lexical dev",
     "prepare": "husky .github/hooks",
