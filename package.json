@@ -3,6 +3,9 @@
   "repository": "https://github.com/TryGhost/Koenig",
   "author": "Ghost Foundation",
   "license": "MIT",
+  "publishConfig": {
+    "registry": "http://localhost:4873"
+  },
   "workspaces": [
     "packages/*"
   ],
