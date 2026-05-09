@@ -130,5 +130,6 @@
     "vitest": "4.0.18",
     "y-websocket": "^3.0.0",
     "yjs": "^13.6.28"
-  }
+  },
+  "gitHead": "fcb44315c41a5be6fc0814d086a6a4edddea15a6"
 }
