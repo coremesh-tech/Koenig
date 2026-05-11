@@ -171,9 +171,9 @@ function PollPreviewOption({
                     style={{ width: fillWidth }}
                 />
             )}
-            <div className="relative z-[1] flex items-center justify-between gap-4 px-5 py-4">
+            <div className="relative z-[1] flex items-center justify-between gap-4 px-5 py-2">
                 <div
-                    className={`inline-flex min-h-11 items-center rounded-[12px] px-4 text-[1.85rem] font-semibold leading-none ${isSelected && !isCorrect ? "bg-white/12" : ""}`}
+                    className={`inline-flex items-center rounded-[12px] px-4 text-[1.85rem] font-semibold leading-none ${isSelected && !isCorrect ? "bg-white/12" : ""}`}
                 >
                     {option.text}
                 </div>
@@ -714,7 +714,7 @@ export function PollNodeComponent({
         [],
     );
 
-    if (showPreview) {
+    if (!showPreview) {
         return (
             <div
                 className="not-kg-prose relative w-full max-w-full rounded-[20px] bg-[#232120] px-8 py-8 font-sans text-white shadow-[0_0_0_1px_rgba(255,255,255,0.03)]"
