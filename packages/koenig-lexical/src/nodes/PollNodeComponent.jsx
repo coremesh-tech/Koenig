@@ -227,6 +227,7 @@ export function PollNodeComponent({
     const menuRef = React.useRef(null);
     const imageInputRef = React.useRef(null);
     const endDateInputRef = React.useRef(null);
+    const previewSyncPollIdRef = React.useRef(null);
     const imageUploader = fileUploader.useFileUpload("image") || {};
     const imageMimeTypes = fileUploader.fileTypes?.image?.mimeTypes || [
         "image/*",
@@ -714,6 +715,22 @@ export function PollNodeComponent({
         [],
     );
 
+    React.useEffect(() => {
+        if (!showPreview || !pollId) {
+            return;
+        }
+
+        if (previewSyncPollIdRef.current === pollId) {
+            return;
+        }
+
+        previewSyncPollIdRef.current = pollId;
+
+        syncPollData(pollId).catch(() => {
+            previewSyncPollIdRef.current = null;
+        });
+    }, [pollId, showPreview, syncPollData]);
+
     if (showPreview) {
         return (
             <div
@@ -790,7 +807,7 @@ export function PollNodeComponent({
                     ))}
                 </div>
 
-                <div className="mt-8 flex items-center justify-between gap-4 text-[1.55rem] text-white/42">
+                <div className="mt-8 flex items-center justify-between gap-4 text-[1.55rem] text-[#878888]">
                     <div>{formatVoteCount(totalVotes)} Votes</div>
                     <div className="flex items-center gap-6">
                         {expiresAt && (
