@@ -1262,7 +1262,7 @@ export function PollNodeComponent({
         };
     }, [cardConfig, expiresAt, pollId, showPreview]);
 
-    if (!showPreview) {
+    if (showPreview) {
         return (
             <div
                 className="not-kg-prose relative w-full max-w-full rounded-[20px] bg-[#232120] px-8 py-8 font-sans text-white shadow-[0_0_0_1px_rgba(255,255,255,0.03)]"
