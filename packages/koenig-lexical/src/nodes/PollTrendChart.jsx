@@ -223,7 +223,7 @@ export function PollTrendChart({
             </div>
 
             {/* SVG 容器: flex-1 + min-h-0 让它在 flex-col 里精确吃掉剩余空间; ResizeObserver 测它的实际像素 */}
-            <div ref={containerRef} className="relative min-h-0 flex-1">
+            <div ref={containerRef} className="relative min-h-200 sm:min-h-0 flex-1">
                 <svg
                     ref={svgRef}
                     className="absolute inset-0 h-full w-full overflow-visible"
@@ -272,8 +272,8 @@ export function PollTrendChart({
                                     fontSize="11"
                                     fontWeight="500"
                                     textAnchor="start"
-                                    x={6}
-                                    y={-12}
+                                    x={-20}
+                                    y={-18}
                                 >
                                     {activeBucket.detail}
                                 </text>
