@@ -133,11 +133,12 @@ function formatBucketLabel(date) {
 }
 
 function formatBucketDetail(date) {
-    const hours = date.getHours();
+    // 24 小时数字 + AM/PM 标签 (按 12 时分割), 例: 17:13 PM / 09:05 AM / 00:42 AM
+    const rawHours = date.getHours();
+    const hours = rawHours.toString().padStart(2, "0");
     const minutes = date.getMinutes().toString().padStart(2, "0");
-    const ampm = hours < 12 ? "AM" : "PM";
-    const h12 = hours % 12 || 12;
-    return `${h12}:${minutes} ${ampm}`;
+    const ampm = rawHours < 12 ? "AM" : "PM";
+    return `${hours}:${minutes} ${ampm}`;
 }
 
 /**

@@ -33,6 +33,13 @@ function formatRate(value) {
     return `${Number(value || 0).toFixed(2)}%`;
 }
 
+function formatDetailTime(date) {
+    const hours = date.getHours().toString().padStart(2, "0");
+    const minutes = date.getMinutes().toString().padStart(2, "0");
+    const ampm = date.getHours() < 12 ? "AM" : "PM";
+    return `${hours}:${minutes} ${ampm}`;
+}
+
 /**
  * 标签去重叠.
  *
@@ -123,10 +130,6 @@ export function PollTrendChart({
     const plotWidth = Math.max(80, viewBoxWidth - labelGutter);
     const plotHeight = Math.max(60, viewBoxHeight - topPadding - bottomPadding);
 
-    const maxRate = Math.max(
-        100,
-        ...trendModel.series.flatMap((series) => series.rates),
-    );
     const bucketCount = trendModel.buckets.length;
     const xStep = bucketCount > 1 ? plotWidth / (bucketCount - 1) : 0;
 
@@ -139,6 +142,34 @@ export function PollTrendChart({
     const activeBucket = trendModel.buckets[nearestActiveIndex];
     const activeX = activeFraction * xStep;
     const isHovering = hoverX !== null;
+    const lowerActiveIndex = Math.floor(activeFraction);
+    const upperActiveIndex = Math.min(lowerActiveIndex + 1, bucketCount - 1);
+    const activeProgress = activeFraction - lowerActiveIndex;
+
+    const rateToY = React.useCallback((rate) => {
+        const normalizedRate = clamp(Number(rate) || 0, 0, 100);
+        return plotHeight - (normalizedRate / 100) * plotHeight;
+    }, [plotHeight]);
+
+    const activeDetail = React.useMemo(() => {
+        const lowerBucket = trendModel.buckets[lowerActiveIndex];
+        const upperBucket = trendModel.buckets[upperActiveIndex];
+        const lowerMs = lowerBucket ? Date.parse(lowerBucket.key) : NaN;
+        const upperMs = upperBucket ? Date.parse(upperBucket.key) : NaN;
+
+        if (Number.isFinite(lowerMs) && Number.isFinite(upperMs)) {
+            const interpolatedMs = lowerMs + (upperMs - lowerMs) * activeProgress;
+            return formatDetailTime(new Date(interpolatedMs));
+        }
+
+        return activeBucket?.detail || "";
+    }, [
+        activeBucket?.detail,
+        activeProgress,
+        lowerActiveIndex,
+        trendModel.buckets,
+        upperActiveIndex,
+    ]);
 
     React.useEffect(() => {
         const id = requestAnimationFrame(() => setMounted(true));
@@ -173,7 +204,7 @@ export function PollTrendChart({
     const pointsBySeries = trendModel.series.map((series) =>
         series.rates.map((rate, index) => ({
             x: index * xStep,
-            y: plotHeight - (rate / maxRate) * (plotHeight - 18),
+            y: rateToY(rate),
         })),
     );
 
@@ -186,11 +217,11 @@ export function PollTrendChart({
     // 在 activeFraction 位置, 对每个 series 做线性插值, 得到当前 y 和当前百分比
     const activePositions = trendModel.series.map((series, seriesIndex) => {
         const rates = series.rates;
-        const lower = Math.floor(activeFraction);
-        const upper = Math.min(lower + 1, rates.length - 1);
-        const t = activeFraction - lower;
+        const lower = lowerActiveIndex;
+        const upper = Math.min(upperActiveIndex, rates.length - 1);
+        const t = activeProgress;
         const rate = rates[lower] + (rates[upper] - rates[lower]) * t;
-        const y = plotHeight - (rate / maxRate) * (plotHeight - 18);
+        const y = rateToY(rate);
         return {seriesIndex, x: activeX, y, rate};
     });
 
@@ -266,7 +297,7 @@ export function PollTrendChart({
                                 y1={-10}
                                 y2={plotHeight + 18}
                             />
-                            {activeBucket?.detail && (
+                            {activeDetail && (
                                 <text
                                     fill="rgba(255,255,255,0.88)"
                                     fontSize="11"
@@ -275,7 +306,7 @@ export function PollTrendChart({
                                     x={-20}
                                     y={-18}
                                 >
-                                    {activeBucket.detail}
+                                    {activeDetail}
                                 </text>
                             )}
                         </g>
