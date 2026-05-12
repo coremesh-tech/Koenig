@@ -85,7 +85,11 @@ export class PollNode extends KoenigDecoratorNode {
         this.__description = dataset.description || '';
         this.__imageSrc = dataset.imageSrc || dataset.image_src || '';
         this.__expiresAt = dataset.expiresAt || dataset.expires_at || '';
-        this.__pollType = dataset.pollType || dataset.poll_type || 'single';
+        // 兼容历史值 'multi' → 'multiple'
+        {
+            const rawPollType = dataset.pollType || dataset.poll_type || 'single';
+            this.__pollType = (rawPollType === 'multiple' || rawPollType === 'multi') ? 'multiple' : 'single';
+        }
         this.__status = dataset.status || 'draft';
         this.__answerRevealed = Boolean(dataset.answerRevealed ?? dataset.answer_revealed ?? false);
         this.__correctOptionIds = cloneStringArray(dataset.correctOptionIds || dataset.correct_option_ids || []);
@@ -197,6 +201,10 @@ export class PollNode extends KoenigDecoratorNode {
         this.getWritable().__status = status;
     }
 
+    setPollType(pollType = 'single') {
+        this.getWritable().__pollType = pollType === 'multiple' ? 'multiple' : 'single';
+    }
+
     setPollId(pollId = '') {
         this.getWritable().__pollId = pollId;
     }
@@ -287,6 +295,7 @@ export class PollNode extends KoenigDecoratorNode {
                     nodeKey={this.getKey()}
                     options={this.options}
                     pollId={this.pollId}
+                    pollType={this.pollType}
                     selectedOptionIds={this.selectedOptionIds}
                     status={this.status}
                     title={this.title}

@@ -66,6 +66,27 @@ export async function getAdminPoll(pollId, cardConfig = {}) {
     return request(`/admin/polls/${pollId}`, {cardConfig});
 }
 
+export async function getAdminPollTrends(pollId, params = {}, cardConfig = {}) {
+    const config = resolvePollsApiConfig(cardConfig);
+    if (typeof config.getPollTrends === 'function') {
+        return config.getPollTrends(pollId, params);
+    }
+
+    const search = new URLSearchParams();
+    if (params.from) {
+        search.set('from', params.from);
+    }
+    if (params.to) {
+        search.set('to', params.to);
+    }
+    if (params.resolution) {
+        search.set('resolution', params.resolution);
+    }
+    const query = search.toString() ? `?${search.toString()}` : '';
+
+    return request(`/admin/polls/${pollId}/trends${query}`, {cardConfig});
+}
+
 export async function getAdminPollVotes(pollId, cardConfig = {}) {
     const config = resolvePollsApiConfig(cardConfig);
     if (typeof config.getPollVotes === 'function') {
@@ -83,6 +104,19 @@ export async function publishAdminPoll(pollId, cardConfig = {}) {
 
     return request(`/admin/polls/${pollId}/publish`, {
         method: 'POST',
+        cardConfig
+    });
+}
+
+export async function publishAdminPollResults(pollId, {correctOptionIds = []} = {}, cardConfig = {}) {
+    const config = resolvePollsApiConfig(cardConfig);
+    if (typeof config.publishPollResults === 'function') {
+        return config.publishPollResults(pollId, {correctOptionIds});
+    }
+
+    return request(`/admin/polls/${pollId}/publish-results`, {
+        method: 'POST',
+        body: {correct_option_ids: correctOptionIds},
         cardConfig
     });
 }
