@@ -129,6 +129,8 @@ export function PollTrendChart({
     const viewBoxHeight = dims.height;
     const plotWidth = Math.max(80, viewBoxWidth - labelGutter);
     const plotHeight = Math.max(60, viewBoxHeight - topPadding - bottomPadding);
+    const chartTopY = -topPadding;
+    const chartBottomY = viewBoxHeight - topPadding;
 
     const bucketCount = trendModel.buckets.length;
     const xStep = bucketCount > 1 ? plotWidth / (bucketCount - 1) : 0;
@@ -148,8 +150,8 @@ export function PollTrendChart({
 
     const rateToY = React.useCallback((rate) => {
         const normalizedRate = clamp(Number(rate) || 0, 0, 100);
-        return plotHeight - (normalizedRate / 100) * plotHeight;
-    }, [plotHeight]);
+        return viewBoxHeight * (1 - normalizedRate / 100) - topPadding;
+    }, [topPadding, viewBoxHeight]);
 
     const activeDetail = React.useMemo(() => {
         const lowerBucket = trendModel.buckets[lowerActiveIndex];
@@ -229,12 +231,12 @@ export function PollTrendChart({
     // 圆点本身的 y 不变, 保持数据真实.
     const labelInitial = activePositions.map((pos) => ({
         seriesIndex: pos.seriesIndex,
-        y: clamp(pos.y + 4, 12, plotHeight - 4),
+        y: clamp(pos.y + 4, chartTopY + 8, chartBottomY - 8),
     }));
     const labelYBySeries = resolveLabelLayout(labelInitial, {
         minGap: labelMinGap,
-        minY: 12,
-        maxY: plotHeight - 4,
+        minY: chartTopY + 8,
+        maxY: chartBottomY - 8,
     });
 
     // hover 时给「快」的过渡 (跟手), 离开时给「慢」的过渡 (优雅回弹)
@@ -276,10 +278,10 @@ export function PollTrendChart({
                         {/* 整片可交互的透明覆盖层, 用来接收 mousemove */}
                         <rect
                             fill="transparent"
-                            height={plotHeight + 40}
+                            height={viewBoxHeight}
                             width={plotWidth}
                             x={0}
-                            y={-topPadding}
+                            y={chartTopY}
                         />
 
                         {/* 竖向 crosshair (跟随 hover) */}
@@ -294,8 +296,8 @@ export function PollTrendChart({
                                 strokeWidth="1"
                                 x1={0}
                                 x2={0}
-                                y1={-10}
-                                y2={plotHeight + 18}
+                                y1={chartTopY}
+                                y2={chartBottomY}
                             />
                             {activeDetail && (
                                 <text
