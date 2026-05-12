@@ -36,8 +36,9 @@ function formatRate(value) {
 function formatDetailTime(date) {
     const hours = date.getHours().toString().padStart(2, "0");
     const minutes = date.getMinutes().toString().padStart(2, "0");
+    const seconds = date.getSeconds().toString().padStart(2, "0");
     const ampm = date.getHours() < 12 ? "AM" : "PM";
-    return `${hours}:${minutes} ${ampm}`;
+    return `${hours}:${minutes}:${seconds} ${ampm}`;
 }
 
 /**
