@@ -33,3 +33,7 @@
 
     --kg-breakout-adjustment-with-fallback: var(--kg-breakout-adjustment, 0px);
 }
+
+.tv-lightweight-charts table tr th, td {
+    border: none !important;
+}
