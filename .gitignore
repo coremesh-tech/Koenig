@@ -7,8 +7,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-.npmrc
-
 # Runtime data
 pids
 *.pid
@@ -40,6 +38,8 @@ build/Release
 node_modules/
 jspm_packages/
 build/
+
+.npmrc
 
 # Typescript v1 declaration files
 typings/
