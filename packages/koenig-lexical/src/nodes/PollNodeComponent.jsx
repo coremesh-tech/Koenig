@@ -84,10 +84,6 @@ function formatDisplayDate(value) {
     return date.toISOString().slice(0, 10);
 }
 
-function getMinimumEndDate() {
-    return new Date(Date.now() + 24 * 60 * 60 * 1000);
-}
-
 function isExpired(value) {
     if (!value) {
         return false;
@@ -700,16 +696,15 @@ export function PollNodeComponent({
 
         if (expiresAt) {
             const expiresAtDate = new Date(expiresAt);
-            const minimumEndDate = getMinimumEndDate();
 
             if (Number.isNaN(expiresAtDate.getTime())) {
                 setApiError("End date is invalid");
                 return;
             }
 
-            if (expiresAtDate.getTime() < minimumEndDate.getTime()) {
+            if (expiresAtDate.getTime() < Date.now()) {
                 setApiError(
-                    "End date must be at least one day later than the current time",
+                    "End date must be later than the current time",
                 );
                 return;
             }
@@ -797,10 +792,7 @@ export function PollNodeComponent({
     // 没设结束时间 → 直接可发布; 设了结束时间 → 必须等过期才能发布
     // 已经公布过则隐藏入口, 避免重复操作
     const canPublishResults = (!expiresAt || isExpired(expiresAt)) && !answerRevealed;
-    const minEndDateValue = React.useMemo(
-        () => toDateTimeLocalValue(getMinimumEndDate().toISOString()),
-        [],
-    );
+    const minEndDateValue = toDateTimeLocalValue(new Date().toISOString());
 
     // 图表的趋势数据: 只用 /admin/polls/:id/trends 的真实数据.
     // 接口未返回 / 空 / 出错时, 这里返回 null, 渲染层换成 <PollTrendEmpty />.
