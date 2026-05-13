@@ -285,6 +285,7 @@ export function PollTrendChart({
 
         const nextPosition = {
             x: activeX,
+            bucketXs,
             timeLabelX,
             timeText,
             activeBucketIndex,
@@ -301,6 +302,19 @@ export function PollTrendChart({
             onActivateIndex(activeBucketIndex);
         }
     }, [onActivateIndex, preparedTrendModel, surfaceSize.height, surfaceSize.width]);
+
+    const scheduleOverlayUpdate = React.useCallback(() => {
+        if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current);
+        }
+
+        animationFrameRef.current = requestAnimationFrame(() => {
+            animationFrameRef.current = requestAnimationFrame(() => {
+                animationFrameRef.current = 0;
+                updateOverlay();
+            });
+        });
+    }, [updateOverlay]);
 
     React.useLayoutEffect(() => {
         if (!surfaceRef.current) {
@@ -415,8 +429,8 @@ export function PollTrendChart({
             hoverXRef.current = clamp(hoverXRef.current, 0, surfaceSize.width);
         }
 
-        updateOverlay();
-    }, [preparedTrendModel?.buckets.length, surfaceSize.height, surfaceSize.width, updateOverlay]);
+        scheduleOverlayUpdate();
+    }, [preparedTrendModel?.buckets.length, scheduleOverlayUpdate, surfaceSize.height, surfaceSize.width]);
 
     React.useLayoutEffect(() => {
         const chart = chartRef.current;
@@ -466,14 +480,8 @@ export function PollTrendChart({
         hoverXRef.current = null;
         chart.timeScale().fitContent();
 
-        if (animationFrameRef.current) {
-            cancelAnimationFrame(animationFrameRef.current);
-        }
-        animationFrameRef.current = requestAnimationFrame(() => {
-            animationFrameRef.current = 0;
-            updateOverlay();
-        });
-    }, [preparedTrendModel, updateOverlay]);
+        scheduleOverlayUpdate();
+    }, [preparedTrendModel, scheduleOverlayUpdate]);
 
     React.useEffect(() => {
         const chart = chartRef.current;
@@ -521,7 +529,7 @@ export function PollTrendChart({
     }
 
     return (
-        <div className="flex h-full w-full flex-col rounded-[12px]">
+        <div className="flex h-[240px] w-full flex-col rounded-[12px] sm:h-full">
             <div className="mb-[10px] flex flex-wrap gap-x-6 gap-y-2">
                 {preparedTrendModel.series.map((series) => (
                     <div key={series.optionId} className="inline-flex items-center gap-2 text-[1.5rem] leading-none text-white/90">
@@ -541,9 +549,10 @@ export function PollTrendChart({
             >
                 {activePosition && (
                     <div
-                        className="pointer-events-none absolute top-0 z-[3] max-w-[84px] -translate-x-1/2 whitespace-nowrap text-center text-[1.1rem] font-medium leading-none text-white/90"
+                        className="pointer-events-none absolute top-0 z-[3] max-w-[84px] whitespace-nowrap text-center text-[1.1rem] font-medium leading-none text-white/90"
                         style={{
                             left: activePosition.timeLabelX,
+                            transform: "translateX(-50%)",
                         }}
                     >
                         {activePosition.timeText}
@@ -565,11 +574,12 @@ export function PollTrendChart({
                     覆盖 chart canvas (z-1) 和 bucket 日期 (z-3) 之间, 视觉上不会被切. */}
                 {activePosition && (
                     <div
-                        className="pointer-events-none absolute z-[2] w-px -translate-x-1/2 bg-[rgba(255,255,255,0.22)]"
+                        className="pointer-events-none absolute z-[2] w-px bg-[rgba(255,255,255,0.22)]"
                         style={{
                             left: activePosition.x,
                             top: "30px",
                             bottom: "30px",
+                            transform: "translateX(-50%)",
                         }}
                     />
                 )}
@@ -590,11 +600,12 @@ export function PollTrendChart({
                         return (
                             <React.Fragment key={value.id}>
                                 <div
-                                    className="absolute size-[14px] -translate-x-1/2 -translate-y-1/2"
+                                    className="absolute size-[14px]"
                                     style={{
                                         left: Math.round(activePosition.x),
                                         top: Math.round(value.y),
                                         color: value.color,
+                                        transform: "translate(-50%, -50%)",
                                     }}
                                 >
                                     <span
@@ -630,11 +641,9 @@ export function PollTrendChart({
                 </div>
 
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] h-[18px]">
-                    {preparedTrendModel.buckets.map((bucket, index) => {
+                    {activePosition?.bucketXs?.length ? preparedTrendModel.buckets.map((bucket, index) => {
                         const isActive = index === activePosition?.activeBucketIndex;
-                        const bucketX = activePosition
-                            ? getBucketCoordinates(chartRef.current, preparedTrendModel.buckets, surfaceSize.width)[index] ?? 0
-                            : 0;
+                        const bucketX = activePosition.bucketXs[index] ?? 0;
                         const color = isActive
                             ? "rgba(255,255,255,0.82)"
                             : (bucket.isFuture ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.5)");
@@ -642,16 +651,17 @@ export function PollTrendChart({
                         return (
                             <div
                                 key={bucket.key}
-                                className="absolute bottom-0 -translate-x-1/2 whitespace-nowrap text-[1rem] leading-none"
+                                className="absolute bottom-0 whitespace-nowrap text-[1rem] leading-none"
                                 style={{
                                     left: bucketX,
                                     color,
+                                    transform: "translateX(-50%)",
                                 }}
                             >
                                 {bucket.label}
                             </div>
                         );
-                    })}
+                    }) : null}
                 </div>
 
                 <style>{`

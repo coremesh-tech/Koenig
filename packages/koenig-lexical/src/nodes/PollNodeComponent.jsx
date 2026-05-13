@@ -951,7 +951,7 @@ export function PollNodeComponent({
                         ))}
                     </div>
                     {trendModel && (
-                        <div className="order-1 min-h-[260px] w-full sm:order-2 sm:flex-[1.2] sm:min-h-0 sm:min-w-0">
+                        <div className="order-1 min-h-[240px] w-full sm:order-2 sm:flex-[1.2] sm:min-h-0 sm:min-w-0">
                             <PollTrendChart
                                 activeIndex={resolvedActiveTrendIndex}
                                 onActivateIndex={setActiveTrendIndex}
