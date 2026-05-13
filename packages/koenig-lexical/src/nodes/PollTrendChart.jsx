@@ -16,12 +16,12 @@ function formatRate(value) {
     return `${Number(value || 0).toFixed(2)}%`;
 }
 
-function formatDetailTime(date) {
+function formatHoverDateTime(date) {
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
     const hours = date.getHours().toString().padStart(2, "0");
     const minutes = date.getMinutes().toString().padStart(2, "0");
-    const seconds = date.getSeconds().toString().padStart(2, "0");
-    const ampm = date.getHours() < 12 ? "AM" : "PM";
-    return `${hours}:${minutes}:${seconds} ${ampm}`;
+    return `${month}.${day} ${hours}:${minutes}`;
 }
 
 function resolveLabelLayout(items, {minGap, minY, maxY}) {
@@ -117,6 +117,16 @@ function measureChartSurface(surfaceElement) {
     };
 }
 
+function resolveRateY(rate, height) {
+    const clampedRate = clamp(Number(rate || 0), CHART_RATE_MIN, CHART_RATE_MAX);
+    const plotTop = height * SCALE_MARGIN_TOP;
+    const plotBottom = height * SCALE_MARGIN_BOTTOM;
+    const plotHeight = Math.max(height - plotTop - plotBottom, 1);
+    const normalizedRate = (clampedRate - CHART_RATE_MIN) / (CHART_RATE_MAX - CHART_RATE_MIN);
+
+    return clamp(plotTop + ((1 - normalizedRate) * plotHeight), 0, height);
+}
+
 function getBucketCoordinates(chart, buckets, width) {
     const count = buckets.length;
 
@@ -135,74 +145,28 @@ function getBucketCoordinates(chart, buckets, width) {
     });
 }
 
-function resolveActiveFractionFromX(bucketXs, x) {
+function resolveNearestBucketIndex(bucketXs, x) {
     if (bucketXs.length <= 1) {
         return 0;
     }
 
-    const clampedX = clamp(x, bucketXs[0], bucketXs[bucketXs.length - 1]);
+    let nearestIndex = 0;
+    let nearestDistance = Infinity;
 
-    for (let index = 0; index < bucketXs.length - 1; index += 1) {
-        const left = bucketXs[index];
-        const right = bucketXs[index + 1];
-
-        if (clampedX <= right) {
-            const span = right - left;
-            const fraction = span > 0 ? (clampedX - left) / span : 0;
-            return index + clamp(fraction, 0, 1);
+    bucketXs.forEach((bucketX, index) => {
+        const distance = Math.abs(bucketX - x);
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestIndex = index;
         }
-    }
+    });
 
-    return bucketXs.length - 1;
-}
-
-function interpolateValue(values, fraction) {
-    if (values.length === 0) {
-        return 0;
-    }
-
-    const lowerIndex = Math.floor(fraction);
-    const upperIndex = Math.min(lowerIndex + 1, values.length - 1);
-
-    if (lowerIndex === upperIndex) {
-        return Number(values[lowerIndex] || 0);
-    }
-
-    const lowerValue = Number(values[lowerIndex] || 0);
-    const upperValue = Number(values[upperIndex] || 0);
-    const segmentFraction = fraction - lowerIndex;
-
-    return lowerValue + ((upperValue - lowerValue) * segmentFraction);
-}
-
-function interpolateTime(buckets, fraction) {
-    if (buckets.length === 0) {
-        return "";
-    }
-
-    const lowerIndex = Math.floor(fraction);
-    const upperIndex = Math.min(lowerIndex + 1, buckets.length - 1);
-    const lowerBucket = buckets[lowerIndex];
-    const upperBucket = buckets[upperIndex];
-
-    if (!lowerBucket || !Number.isFinite(lowerBucket.chartMs)) {
-        return "";
-    }
-
-    if (!upperBucket || !Number.isFinite(upperBucket.chartMs) || lowerIndex === upperIndex) {
-        // 停在某个 bucket 上时, 也走 formatDetailTime 输出带秒的完整时间;
-        // 不再用 bucket.detail (那是 pollTrendModel 里的 HH:MM AM/PM 简版).
-        return formatDetailTime(new Date(lowerBucket.chartMs));
-    }
-
-    const segmentFraction = fraction - lowerIndex;
-    const activeMilliseconds = lowerBucket.chartMs + ((upperBucket.chartMs - lowerBucket.chartMs) * segmentFraction);
-    return formatDetailTime(new Date(activeMilliseconds));
+    return nearestIndex;
 }
 
 export function PollTrendChart({
-    // Ghost 前台图表默认只使用 trendModel.activeIndex 作为 rest 态,
-    // 不吃外部传进来的 activeIndex; 这里保留 prop 只是兼容调用方.
+    // 当前编辑器里改成了 hover-only 交互, 不再使用外部 activeIndex 做默认高亮;
+    // 这里保留 prop 只是兼容调用方.
     // eslint-disable-next-line no-unused-vars
     activeIndex,
     onActivateIndex,
@@ -238,25 +202,24 @@ export function PollTrendChart({
             return;
         }
 
-        const defaultX = bucketXs[prepared.activeIndex] ?? bucketXs[bucketXs.length - 1] ?? 0;
-        const activeX = hoverXRef.current === null
-            ? defaultX
-            : clamp(hoverXRef.current, bucketXs[0], bucketXs[bucketXs.length - 1]);
-        const activeFraction = resolveActiveFractionFromX(bucketXs, activeX);
-        const activeBucketIndex = Math.round(activeFraction);
-        const timeText = interpolateTime(prepared.buckets, activeFraction);
-        const timePadding = 42;
-        const timeLabelX = clamp(activeX, timePadding, Math.max(surfaceSize.width - timePadding, timePadding));
+        if (hoverXRef.current === null) {
+            setActivePosition(null);
+            return;
+        }
+
+        const hoveredX = clamp(hoverXRef.current, bucketXs[0], bucketXs[bucketXs.length - 1]);
+        const activeBucketIndex = resolveNearestBucketIndex(bucketXs, hoveredX);
+        const activeX = bucketXs[activeBucketIndex] ?? hoveredX;
+        const activeBucket = prepared.buckets[activeBucketIndex];
+        const timeText = activeBucket?.chartMs
+            ? formatHoverDateTime(new Date(activeBucket.chartMs))
+            : "";
         const labelMinY = 10;
         const labelMaxY = Math.max(labelMinY, surfaceSize.height - 10);
 
         const values = seriesRefs.current.map((seriesRef, seriesIndex) => {
-            const rate = interpolateValue(seriesRef.values, activeFraction);
-            const coordinate = seriesRef.api.priceToCoordinate(rate);
-            // canvas 现在严格等于 surfaceViewport, 不再有 -4/+4 偏移
-            const y = typeof coordinate === "number" && Number.isFinite(coordinate)
-                ? clamp(coordinate, 0, surfaceSize.height)
-                : clamp(surfaceSize.height - ((rate / 100) * surfaceSize.height), 0, surfaceSize.height);
+            const rate = Number(seriesRef.values[activeBucketIndex] || 0);
+            const y = resolveRateY(rate, surfaceSize.height);
 
             return {
                 id: prepared.series[seriesIndex].optionId,
@@ -286,7 +249,6 @@ export function PollTrendChart({
         const nextPosition = {
             x: activeX,
             bucketXs,
-            timeLabelX,
             timeText,
             activeBucketIndex,
             values: values.map((value) => {
@@ -501,7 +463,8 @@ export function PollTrendChart({
         };
 
         const handlePointerLeave = () => {
-            // Keep the last hover position, matching Ghost frontend behavior.
+            hoverXRef.current = null;
+            setActivePosition(null);
         };
 
         const handleCrosshairMove = (event) => {
@@ -545,20 +508,7 @@ export function PollTrendChart({
             <div
                 ref={plotWrapRef}
                 className="relative min-h-0 flex-1 cursor-crosshair pt-6"
-                style={{paddingBottom: "18px"}}
             >
-                {activePosition && (
-                    <div
-                        className="pointer-events-none absolute top-0 z-[3] max-w-[84px] whitespace-nowrap text-center text-[1.1rem] font-medium leading-none text-white/90"
-                        style={{
-                            left: activePosition.timeLabelX,
-                            transform: "translateX(-50%)",
-                        }}
-                    >
-                        {activePosition.timeText}
-                    </div>
-                )}
-
                 <div
                     ref={surfaceViewportRef}
                     className="absolute inset-x-0 overflow-hidden"
@@ -570,8 +520,6 @@ export function PollTrendChart({
                     />
                 </div>
 
-                {/* crosshair 竖线单独占一层, 从顶部时间文字下方一直拉到 plotWrap 最底,
-                    覆盖 chart canvas (z-1) 和 bucket 日期 (z-3) 之间, 视觉上不会被切. */}
                 {activePosition && (
                     <div
                         className="pointer-events-none absolute z-[2] w-px bg-[rgba(255,255,255,0.22)]"
@@ -584,13 +532,12 @@ export function PollTrendChart({
                     />
                 )}
 
-                {/* 圆点 + 百分比标签层 (沿用 chart canvas 的 y 坐标空间: top 24 / bottom 18) */}
                 <div
                     className="pointer-events-none absolute inset-x-0 z-[2]"
                     style={{top: "24px", bottom: "18px"}}
                 >
                     {activePosition?.values.map((value) => {
-                        const flipLeft = activePosition.x > surfaceSize.width - 86;
+                        const flipLeft = activePosition.x > surfaceSize.width - 140;
                         const labelX = clamp(
                             activePosition.x + (flipLeft ? -12 : 12),
                             4,
@@ -631,37 +578,14 @@ export function PollTrendChart({
                                         transform: flipLeft ? "translate(-100%, -50%)" : "translateY(-50%)",
                                         textAlign: flipLeft ? "right" : "left",
                                         justifyContent: flipLeft ? "flex-end" : "flex-start",
+                                        zIndex: 2,
                                     }}
                                 >
-                                    {formatRate(value.rate)}
+                                    {`${activePosition.timeText} ${formatRate(value.rate)}`}
                                 </div>
                             </React.Fragment>
                         );
                     })}
-                </div>
-
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] h-[18px]">
-                    {activePosition?.bucketXs?.length ? preparedTrendModel.buckets.map((bucket, index) => {
-                        const isActive = index === activePosition?.activeBucketIndex;
-                        const bucketX = activePosition.bucketXs[index] ?? 0;
-                        const color = isActive
-                            ? "rgba(255,255,255,0.82)"
-                            : (bucket.isFuture ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.5)");
-
-                        return (
-                            <div
-                                key={bucket.key}
-                                className="absolute bottom-0 whitespace-nowrap text-[1rem] leading-none"
-                                style={{
-                                    left: bucketX,
-                                    color,
-                                    transform: "translateX(-50%)",
-                                }}
-                            >
-                                {bucket.label}
-                            </div>
-                        );
-                    }) : null}
                 </div>
 
                 <style>{`
