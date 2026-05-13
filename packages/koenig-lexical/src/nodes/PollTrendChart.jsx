@@ -1,32 +1,15 @@
 import React from "react";
+import {LineType, createChart} from "lightweight-charts";
 
-// ---- 数学 / 路径 / 文案小工具 ----
+const CHART_RATE_MIN = 0;
+const CHART_RATE_MAX = 100;
+// 上下内边距, 让 0% / 100% 数据线离 canvas 顶/底有充足空间, stroke width 4 不会被
+// surfaceViewport 的 overflow-hidden 切掉. 底部稍大, 给 0% 段更多缓冲.
+const SCALE_MARGIN_TOP = 0.06;
+const SCALE_MARGIN_BOTTOM = 0.1;
 
 function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
-}
-
-// 平滑折线: 在相邻两点间用三次贝塞尔, 控制点取两端 x 中点保证曲线水平进出.
-function createSmoothPath(points) {
-    if (points.length === 0) {
-        return "";
-    }
-
-    if (points.length === 1) {
-        return `M ${points[0].x} ${points[0].y}`;
-    }
-
-    let path = `M ${points[0].x} ${points[0].y}`;
-
-    for (let index = 1; index < points.length; index += 1) {
-        const previousPoint = points[index - 1];
-        const currentPoint = points[index];
-        const controlPointX = previousPoint.x + (currentPoint.x - previousPoint.x) / 2;
-
-        path += ` C ${controlPointX} ${previousPoint.y}, ${controlPointX} ${currentPoint.y}, ${currentPoint.x} ${currentPoint.y}`;
-    }
-
-    return path;
 }
 
 function formatRate(value) {
@@ -41,405 +24,654 @@ function formatDetailTime(date) {
     return `${hours}:${minutes}:${seconds} ${ampm}`;
 }
 
-/**
- * 标签去重叠.
- *
- * 当多个 series 在同一时间点的百分比相同 (或非常接近) 时, 它们的标签 y 会重合,
- * 看起来像是只画了一条数据. 这里做一次「弹簧式」垂直推开:
- *
- *   1. 按初始 y 升序, 顺序遍历, 保证相邻标签 y 距离 >= minGap
- *   2. 反向再扫一次, 防止整体被往下推超出 [minY, maxY] 边界
- *
- * 返回 Map<seriesIndex, adjustedY>.
- */
 function resolveLabelLayout(items, {minGap, minY, maxY}) {
     if (items.length === 0) {
         return new Map();
     }
 
     const sorted = [...items].sort((a, b) => a.y - b.y);
-    const adjusted = new Map();
+    const out = new Map();
+    let prev = -Infinity;
 
-    // 正向: 把每个标签往下顶到至少与上一个差 minGap
-    let prevY = -Infinity;
     for (const item of sorted) {
-        const y = Math.max(item.y, prevY + minGap);
-        adjusted.set(item.seriesIndex, y);
-        prevY = y;
+        const y = Math.max(item.y, prev + minGap);
+        out.set(item.id, y);
+        prev = y;
     }
 
-    // 反向: 如果尾部被顶出 maxY, 反过来把它们往上回推
-    let nextY = Infinity;
-    for (let i = sorted.length - 1; i >= 0; i -= 1) {
-        const item = sorted[i];
-        const current = adjusted.get(item.seriesIndex);
-        const y = clamp(Math.min(current, nextY - minGap), minY, maxY);
-        adjusted.set(item.seriesIndex, y);
-        nextY = y;
+    let next = Infinity;
+    for (let index = sorted.length - 1; index >= 0; index -= 1) {
+        const item = sorted[index];
+        const current = out.get(item.id);
+        const y = clamp(Math.min(current, next - minGap), minY, maxY);
+        out.set(item.id, y);
+        next = y;
     }
 
-    return adjusted;
+    return out;
 }
 
-/**
- * 趋势图.
- *
- * Props:
- *   activeIndex       number              非 hover 状态下的「当前激活」整数索引
- *   onActivateIndex   (index) => void     hover 时把最近 bucket 同步给父端 (可选)
- *   trendModel        {buckets, series, activeIndex?}
- *     buckets: [{key, label, detail, isFuture}]
- *     series:  [{optionId, text, color, rates: number[]}]
- */
+function toChartTimestamp(value) {
+    const milliseconds = new Date(value).getTime();
+    if (!Number.isFinite(milliseconds)) {
+        return null;
+    }
+
+    return {
+        seconds: Math.floor(milliseconds / 1000),
+        milliseconds,
+    };
+}
+
+function prepareTrendModelForChart(trendModel) {
+    if (!trendModel || !Array.isArray(trendModel.buckets) || !Array.isArray(trendModel.series) || trendModel.series.length === 0) {
+        return null;
+    }
+
+    const buckets = trendModel.buckets.map((bucket) => {
+        const timestamp = toChartTimestamp(bucket.key);
+
+        return {
+            ...bucket,
+            chartTime: timestamp ? timestamp.seconds : null,
+            chartMs: timestamp ? timestamp.milliseconds : null,
+        };
+    });
+
+    if (buckets.length === 0 || buckets.some(bucket => bucket.chartTime === null)) {
+        return null;
+    }
+
+    const series = trendModel.series.map((item) => {
+        return {
+            ...item,
+            rates: Array.isArray(item.rates)
+                ? item.rates.map(rate => clamp(Number(rate || 0), 0, 100))
+                : [],
+        };
+    }).filter((item) => {
+        return item.rates.length === buckets.length;
+    });
+
+    if (series.length === 0) {
+        return null;
+    }
+
+    return {
+        buckets,
+        series,
+        activeIndex: clamp(
+            trendModel.activeIndex ?? buckets.length - 1,
+            0,
+            Math.max(buckets.length - 1, 0),
+        ),
+    };
+}
+
+function measureChartSurface(surfaceElement) {
+    const rect = surfaceElement.getBoundingClientRect();
+
+    return {
+        width: Math.max(Math.round(rect.width), 1),
+        height: Math.max(Math.round(rect.height), 1),
+    };
+}
+
+function getBucketCoordinates(chart, buckets, width) {
+    const count = buckets.length;
+
+    return buckets.map((bucket, index) => {
+        const coordinate = chart.timeScale().timeToCoordinate(bucket.chartTime);
+
+        if (typeof coordinate === "number" && Number.isFinite(coordinate)) {
+            return clamp(coordinate, 0, width);
+        }
+
+        if (count <= 1) {
+            return width / 2;
+        }
+
+        return (width * index) / (count - 1);
+    });
+}
+
+function resolveActiveFractionFromX(bucketXs, x) {
+    if (bucketXs.length <= 1) {
+        return 0;
+    }
+
+    const clampedX = clamp(x, bucketXs[0], bucketXs[bucketXs.length - 1]);
+
+    for (let index = 0; index < bucketXs.length - 1; index += 1) {
+        const left = bucketXs[index];
+        const right = bucketXs[index + 1];
+
+        if (clampedX <= right) {
+            const span = right - left;
+            const fraction = span > 0 ? (clampedX - left) / span : 0;
+            return index + clamp(fraction, 0, 1);
+        }
+    }
+
+    return bucketXs.length - 1;
+}
+
+function interpolateValue(values, fraction) {
+    if (values.length === 0) {
+        return 0;
+    }
+
+    const lowerIndex = Math.floor(fraction);
+    const upperIndex = Math.min(lowerIndex + 1, values.length - 1);
+
+    if (lowerIndex === upperIndex) {
+        return Number(values[lowerIndex] || 0);
+    }
+
+    const lowerValue = Number(values[lowerIndex] || 0);
+    const upperValue = Number(values[upperIndex] || 0);
+    const segmentFraction = fraction - lowerIndex;
+
+    return lowerValue + ((upperValue - lowerValue) * segmentFraction);
+}
+
+function interpolateTime(buckets, fraction) {
+    if (buckets.length === 0) {
+        return "";
+    }
+
+    const lowerIndex = Math.floor(fraction);
+    const upperIndex = Math.min(lowerIndex + 1, buckets.length - 1);
+    const lowerBucket = buckets[lowerIndex];
+    const upperBucket = buckets[upperIndex];
+
+    if (!lowerBucket || !Number.isFinite(lowerBucket.chartMs)) {
+        return "";
+    }
+
+    if (!upperBucket || !Number.isFinite(upperBucket.chartMs) || lowerIndex === upperIndex) {
+        // 停在某个 bucket 上时, 也走 formatDetailTime 输出带秒的完整时间;
+        // 不再用 bucket.detail (那是 pollTrendModel 里的 HH:MM AM/PM 简版).
+        return formatDetailTime(new Date(lowerBucket.chartMs));
+    }
+
+    const segmentFraction = fraction - lowerIndex;
+    const activeMilliseconds = lowerBucket.chartMs + ((upperBucket.chartMs - lowerBucket.chartMs) * segmentFraction);
+    return formatDetailTime(new Date(activeMilliseconds));
+}
+
 export function PollTrendChart({
+    // Ghost 前台图表默认只使用 trendModel.activeIndex 作为 rest 态,
+    // 不吃外部传进来的 activeIndex; 这里保留 prop 只是兼容调用方.
+    // eslint-disable-next-line no-unused-vars
     activeIndex,
     onActivateIndex,
     trendModel,
 }) {
-    // ---- 内部留白常量 (相对 SVG 像素) ----
-    const topPadding = 24;       // 顶部 "5 AM" 时间标签
-    const bottomPadding = 36;    // 底部 bucket 日期标签 + 间距
-    const labelGutter = 12;      // 右侧给随圆点的百分比标签留点空间
-    const labelMinGap = 16;      // 同一时间点两个百分比标签之间的最小垂直距离
+    const plotWrapRef = React.useRef(null);
+    const surfaceViewportRef = React.useRef(null);
+    const surfaceRef = React.useRef(null);
+    const chartRef = React.useRef(null);
+    const seriesRefs = React.useRef([]);
+    const hoverXRef = React.useRef(null);
+    const animationFrameRef = React.useRef(0);
 
-    const containerRef = React.useRef(null);
-    const svgRef = React.useRef(null);
-    const [hoverX, setHoverX] = React.useState(null);    // null = 没在 hover, 落在默认位
-    const [mounted, setMounted] = React.useState(false); // 首次绘入动画
-    // 用 ResizeObserver 测量 SVG 容器实际尺寸, 让 viewBox / plot 区域跟着选项列高度走
-    const [dims, setDims] = React.useState({width: 348, height: 200});
+    const [surfaceSize, setSurfaceSize] = React.useState({width: 0, height: 0});
+    const [activePosition, setActivePosition] = React.useState(null);
 
-    React.useEffect(() => {
-        const el = containerRef.current;
-        if (!el || typeof ResizeObserver === "undefined") {
+    const preparedTrendModel = React.useMemo(() => {
+        return prepareTrendModelForChart(trendModel);
+    }, [trendModel]);
+
+    const updateOverlay = React.useCallback(() => {
+        const chart = chartRef.current;
+        const prepared = preparedTrendModel;
+
+        if (!chart || !prepared || !surfaceSize.width || !surfaceSize.height) {
+            setActivePosition(null);
+            return;
+        }
+
+        const bucketXs = getBucketCoordinates(chart, prepared.buckets, surfaceSize.width);
+        if (bucketXs.length === 0) {
+            setActivePosition(null);
+            return;
+        }
+
+        const defaultX = bucketXs[prepared.activeIndex] ?? bucketXs[bucketXs.length - 1] ?? 0;
+        const activeX = hoverXRef.current === null
+            ? defaultX
+            : clamp(hoverXRef.current, bucketXs[0], bucketXs[bucketXs.length - 1]);
+        const activeFraction = resolveActiveFractionFromX(bucketXs, activeX);
+        const activeBucketIndex = Math.round(activeFraction);
+        const timeText = interpolateTime(prepared.buckets, activeFraction);
+        const timePadding = 42;
+        const timeLabelX = clamp(activeX, timePadding, Math.max(surfaceSize.width - timePadding, timePadding));
+        const labelMinY = 10;
+        const labelMaxY = Math.max(labelMinY, surfaceSize.height - 10);
+
+        const values = seriesRefs.current.map((seriesRef, seriesIndex) => {
+            const rate = interpolateValue(seriesRef.values, activeFraction);
+            const coordinate = seriesRef.api.priceToCoordinate(rate);
+            // canvas 现在严格等于 surfaceViewport, 不再有 -4/+4 偏移
+            const y = typeof coordinate === "number" && Number.isFinite(coordinate)
+                ? clamp(coordinate, 0, surfaceSize.height)
+                : clamp(surfaceSize.height - ((rate / 100) * surfaceSize.height), 0, surfaceSize.height);
+
+            return {
+                id: prepared.series[seriesIndex].optionId,
+                color: seriesRef.color,
+                text: prepared.series[seriesIndex].text,
+                rate,
+                y,
+            };
+        }).filter(Boolean);
+
+        if (values.length === 0) {
+            setActivePosition(null);
+            return;
+        }
+
+        const labelLayout = resolveLabelLayout(values.map((value) => {
+            return {
+                id: value.id,
+                y: clamp(value.y, labelMinY, labelMaxY),
+            };
+        }), {
+            minGap: 18,
+            minY: labelMinY,
+            maxY: labelMaxY,
+        });
+
+        const nextPosition = {
+            x: activeX,
+            timeLabelX,
+            timeText,
+            activeBucketIndex,
+            values: values.map((value) => {
+                return {
+                    ...value,
+                    labelY: labelLayout.get(value.id) ?? value.y,
+                };
+            }),
+        };
+
+        setActivePosition(nextPosition);
+        if (typeof onActivateIndex === "function") {
+            onActivateIndex(activeBucketIndex);
+        }
+    }, [onActivateIndex, preparedTrendModel, surfaceSize.height, surfaceSize.width]);
+
+    React.useLayoutEffect(() => {
+        if (!surfaceRef.current) {
             return undefined;
         }
-        const observer = new ResizeObserver((entries) => {
-            for (const entry of entries) {
-                const {width, height} = entry.contentRect;
-                if (width > 0 && height > 0) {
-                    setDims({width, height});
-                }
-            }
+
+        const chart = createChart(surfaceRef.current, {
+            width: Math.max(surfaceSize.width, 1),
+            height: Math.max(surfaceSize.height, 1),
+            layout: {
+                background: {color: "transparent"},
+                textColor: "transparent",
+                attributionLogo: false,
+            },
+            grid: {
+                vertLines: {visible: false},
+                horzLines: {visible: false},
+            },
+            crosshair: {
+                mode: 0,
+                vertLine: {visible: false, labelVisible: false},
+                horzLine: {visible: false, labelVisible: false},
+            },
+            leftPriceScale: {
+                visible: false,
+                borderVisible: false,
+                scaleMargins: {top: SCALE_MARGIN_TOP, bottom: SCALE_MARGIN_BOTTOM},
+            },
+            rightPriceScale: {
+                visible: false,
+                borderVisible: false,
+                scaleMargins: {top: SCALE_MARGIN_TOP, bottom: SCALE_MARGIN_BOTTOM},
+            },
+            timeScale: {
+                visible: false,
+                borderVisible: false,
+                ticksVisible: false,
+                timeVisible: false,
+                secondsVisible: true,
+                fixLeftEdge: true,
+                fixRightEdge: true,
+                rightOffset: 0,
+                barSpacing: preparedTrendModel?.buckets.length > 1 ? 18 : 24,
+            },
+            handleScroll: false,
+            handleScale: false,
         });
-        observer.observe(el);
+
+        chartRef.current = chart;
+
+        return () => {
+            if (animationFrameRef.current) {
+                cancelAnimationFrame(animationFrameRef.current);
+            }
+            chart.remove();
+            chartRef.current = null;
+            seriesRefs.current = [];
+        };
+    }, []);
+
+    React.useEffect(() => {
+        const surfaceViewportElement = surfaceViewportRef.current;
+        if (!surfaceViewportElement || typeof ResizeObserver === "undefined") {
+            return undefined;
+        }
+
+        const observer = new ResizeObserver(() => {
+            const nextSize = measureChartSurface(surfaceViewportElement);
+            setSurfaceSize(nextSize);
+        });
+
+        observer.observe(surfaceViewportElement);
+        setSurfaceSize(measureChartSurface(surfaceViewportElement));
+
         return () => observer.disconnect();
     }, []);
 
-    const viewBoxWidth = dims.width;
-    const viewBoxHeight = dims.height;
-    const plotWidth = Math.max(80, viewBoxWidth - labelGutter);
-    const plotHeight = Math.max(60, viewBoxHeight - topPadding - bottomPadding);
-    const chartTopY = -topPadding;
-    const chartBottomY = viewBoxHeight - topPadding;
-
-    const bucketCount = trendModel.buckets.length;
-    const xStep = bucketCount > 1 ? plotWidth / (bucketCount - 1) : 0;
-
-    // hover 时 activeFraction 跟随鼠标连续变化, 否则回落到 activeIndex (默认 5.3)
-    const activeFraction = hoverX !== null && xStep > 0
-        ? clamp(hoverX / xStep, 0, bucketCount - 1)
-        : clamp(activeIndex, 0, Math.max(bucketCount - 1, 0));
-    // 用最近的 bucket 来分「过去/未来」线段和顶部时间标签
-    const nearestActiveIndex = Math.round(activeFraction);
-    const activeBucket = trendModel.buckets[nearestActiveIndex];
-    const activeX = activeFraction * xStep;
-    const isHovering = hoverX !== null;
-    const lowerActiveIndex = Math.floor(activeFraction);
-    const upperActiveIndex = Math.min(lowerActiveIndex + 1, bucketCount - 1);
-    const activeProgress = activeFraction - lowerActiveIndex;
-
-    const rateToY = React.useCallback((rate) => {
-        const normalizedRate = clamp(Number(rate) || 0, 0, 100);
-        return viewBoxHeight * (1 - normalizedRate / 100) - topPadding;
-    }, [topPadding, viewBoxHeight]);
-
-    const activeDetail = React.useMemo(() => {
-        const lowerBucket = trendModel.buckets[lowerActiveIndex];
-        const upperBucket = trendModel.buckets[upperActiveIndex];
-        const lowerMs = lowerBucket ? Date.parse(lowerBucket.key) : NaN;
-        const upperMs = upperBucket ? Date.parse(upperBucket.key) : NaN;
-
-        if (Number.isFinite(lowerMs) && Number.isFinite(upperMs)) {
-            const interpolatedMs = lowerMs + (upperMs - lowerMs) * activeProgress;
-            return formatDetailTime(new Date(interpolatedMs));
+    React.useLayoutEffect(() => {
+        const chart = chartRef.current;
+        if (!chart || !surfaceSize.width || !surfaceSize.height) {
+            return;
         }
 
-        return activeBucket?.detail || "";
-    }, [
-        activeBucket?.detail,
-        activeProgress,
-        lowerActiveIndex,
-        trendModel.buckets,
-        upperActiveIndex,
-    ]);
+        chart.applyOptions({
+            width: surfaceSize.width,
+            height: surfaceSize.height,
+            leftPriceScale: {
+                visible: false,
+                borderVisible: false,
+                scaleMargins: {top: SCALE_MARGIN_TOP, bottom: SCALE_MARGIN_BOTTOM},
+            },
+            rightPriceScale: {
+                visible: false,
+                borderVisible: false,
+                scaleMargins: {top: SCALE_MARGIN_TOP, bottom: SCALE_MARGIN_BOTTOM},
+            },
+            timeScale: {
+                visible: false,
+                borderVisible: false,
+                ticksVisible: false,
+                timeVisible: false,
+                secondsVisible: true,
+                fixLeftEdge: true,
+                fixRightEdge: true,
+                rightOffset: 0,
+                barSpacing: preparedTrendModel?.buckets.length > 1 ? 18 : 24,
+            },
+        });
+        chart.timeScale().fitContent();
+
+        if (hoverXRef.current !== null) {
+            hoverXRef.current = clamp(hoverXRef.current, 0, surfaceSize.width);
+        }
+
+        updateOverlay();
+    }, [preparedTrendModel?.buckets.length, surfaceSize.height, surfaceSize.width, updateOverlay]);
+
+    React.useLayoutEffect(() => {
+        const chart = chartRef.current;
+        if (!chart || !preparedTrendModel) {
+            return;
+        }
+
+        seriesRefs.current.forEach((seriesRef) => {
+            try {
+                chart.removeSeries(seriesRef.api);
+            } catch (_error) {
+                // ignore removed series
+            }
+        });
+        seriesRefs.current = [];
+
+        preparedTrendModel.series.forEach((series) => {
+            const lineSeries = chart.addLineSeries({
+                color: series.color,
+                lineWidth: 2,
+                lineType: typeof LineType?.Curved === "number" ? LineType.Curved : 2,
+                crosshairMarkerVisible: false,
+                lastValueVisible: false,
+                priceLineVisible: false,
+                autoscaleInfoProvider: () => ({
+                    priceRange: {
+                        minValue: CHART_RATE_MIN,
+                        maxValue: CHART_RATE_MAX,
+                    },
+                }),
+            });
+
+            lineSeries.setData(preparedTrendModel.buckets.map((bucket, bucketIndex) => {
+                return {
+                    time: bucket.chartTime,
+                    value: preparedTrendModel.series.find(item => item.optionId === series.optionId).rates[bucketIndex],
+                };
+            }));
+
+            seriesRefs.current.push({
+                api: lineSeries,
+                color: series.color,
+                values: series.rates,
+            });
+        });
+
+        hoverXRef.current = null;
+        chart.timeScale().fitContent();
+
+        if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current);
+        }
+        animationFrameRef.current = requestAnimationFrame(() => {
+            animationFrameRef.current = 0;
+            updateOverlay();
+        });
+    }, [preparedTrendModel, updateOverlay]);
 
     React.useEffect(() => {
-        const id = requestAnimationFrame(() => setMounted(true));
-        return () => cancelAnimationFrame(id);
-    }, []);
-
-    const handleMouseMove = (event) => {
-        const svgEl = svgRef.current;
-        if (!svgEl) {
-            return;
+        const chart = chartRef.current;
+        const plotWrapElement = plotWrapRef.current;
+        if (!chart || !plotWrapElement || !surfaceSize.width) {
+            return undefined;
         }
-        const rect = svgEl.getBoundingClientRect();
-        if (rect.width <= 0) {
-            return;
-        }
-        const x = ((event.clientX - rect.left) / rect.width) * viewBoxWidth;
-        setHoverX(clamp(x, 0, plotWidth));
-    };
 
-    const handleMouseLeave = () => {
-        setHoverX(null);
-    };
+        const handlePointerMove = (event) => {
+            const rect = surfaceViewportRef.current?.getBoundingClientRect();
+            if (!rect || rect.width <= 0) {
+                return;
+            }
 
-    // hover 期间持续把最近 bucket 同步给父组件 (可选, 当前父端没消费, 但保留接口)
-    React.useEffect(() => {
-        if (hoverX === null || typeof onActivateIndex !== "function") {
-            return;
-        }
-        onActivateIndex(nearestActiveIndex);
-    }, [hoverX, nearestActiveIndex, onActivateIndex]);
+            hoverXRef.current = clamp(event.clientX - rect.left, 0, rect.width);
+            updateOverlay();
+        };
 
-    const pointsBySeries = trendModel.series.map((series) =>
-        series.rates.map((rate, index) => ({
-            x: index * xStep,
-            y: rateToY(rate),
-        })),
-    );
+        const handlePointerLeave = () => {
+            // Keep the last hover position, matching Ghost frontend behavior.
+        };
 
-    // 按最近 bucket 切分过去 / 未来线段
-    const splitPointsBySeries = pointsBySeries.map((points) => ({
-        pastPoints: points.slice(0, nearestActiveIndex + 1),
-        futurePoints: points.slice(nearestActiveIndex),
-    }));
+        const handleCrosshairMove = (event) => {
+            if (!event?.point || typeof event.point.x !== "number" || !Number.isFinite(event.point.x)) {
+                return;
+            }
 
-    // 在 activeFraction 位置, 对每个 series 做线性插值, 得到当前 y 和当前百分比
-    const activePositions = trendModel.series.map((series, seriesIndex) => {
-        const rates = series.rates;
-        const lower = lowerActiveIndex;
-        const upper = Math.min(upperActiveIndex, rates.length - 1);
-        const t = activeProgress;
-        const rate = rates[lower] + (rates[upper] - rates[lower]) * t;
-        const y = rateToY(rate);
-        return {seriesIndex, x: activeX, y, rate};
-    });
+            hoverXRef.current = clamp(event.point.x, 0, surfaceSize.width);
+            updateOverlay();
+        };
 
-    // 标签的初始 y 落点 (跟圆点 y 偏 4px 用于视觉对齐), 然后做去重叠;
-    // 圆点本身的 y 不变, 保持数据真实.
-    const labelInitial = activePositions.map((pos) => ({
-        seriesIndex: pos.seriesIndex,
-        y: clamp(pos.y + 4, chartTopY + 8, chartBottomY - 8),
-    }));
-    const labelYBySeries = resolveLabelLayout(labelInitial, {
-        minGap: labelMinGap,
-        minY: chartTopY + 8,
-        maxY: chartBottomY - 8,
-    });
+        plotWrapElement.addEventListener("mousemove", handlePointerMove);
+        plotWrapElement.addEventListener("mouseleave", handlePointerLeave);
+        chart.subscribeCrosshairMove(handleCrosshairMove);
 
-    // hover 时给「快」的过渡 (跟手), 离开时给「慢」的过渡 (优雅回弹)
-    const fastTransition = "transform 0.08s linear";
-    const restTransition = "transform 0.35s cubic-bezier(0.4, 0, 0.2, 1)";
-    const followTransition = isHovering ? fastTransition : restTransition;
+        return () => {
+            plotWrapElement.removeEventListener("mousemove", handlePointerMove);
+            plotWrapElement.removeEventListener("mouseleave", handlePointerLeave);
+            chart.unsubscribeCrosshairMove(handleCrosshairMove);
+        };
+    }, [surfaceSize.width, updateOverlay]);
+
+    if (!preparedTrendModel) {
+        return null;
+    }
 
     return (
-        <div className="flex h-full flex-col rounded-[12px]">
-            <div className="mb-5 flex flex-wrap items-center gap-x-6 gap-y-3">
-                {trendModel.series.map((series) => (
-                    <div key={series.optionId} className="flex items-center gap-2 text-[1.5rem] leading-none text-white/90">
-                        <span className="size-[0.9rem] rounded-full" style={{backgroundColor: series.color}} />
+        <div className="flex h-full w-full flex-col rounded-[12px]">
+            <div className="mb-[10px] flex flex-wrap gap-x-6 gap-y-2">
+                {preparedTrendModel.series.map((series) => (
+                    <div key={series.optionId} className="inline-flex items-center gap-2 text-[1.5rem] leading-none text-white/90">
+                        <span
+                            className="inline-block size-[0.9rem] rounded-full"
+                            style={{backgroundColor: series.color}}
+                        />
                         <span>{series.text}</span>
                     </div>
                 ))}
             </div>
 
-            {/* SVG 容器: flex-1 + min-h-0 让它在 flex-col 里精确吃掉剩余空间; ResizeObserver 测它的实际像素 */}
-            <div ref={containerRef} className="relative min-h-200 sm:min-h-0 flex-1">
-                <svg
-                    ref={svgRef}
-                    className="absolute inset-0 h-full w-full overflow-visible"
-                    preserveAspectRatio="none"
-                    viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`}
-                    onMouseLeave={handleMouseLeave}
-                    onMouseMove={handleMouseMove}
+            <div
+                ref={plotWrapRef}
+                className="relative min-h-0 flex-1 cursor-crosshair pt-6"
+                style={{paddingBottom: "18px"}}
+            >
+                {activePosition && (
+                    <div
+                        className="pointer-events-none absolute top-0 z-[3] max-w-[84px] -translate-x-1/2 whitespace-nowrap text-center text-[1.1rem] font-medium leading-none text-white/90"
+                        style={{
+                            left: activePosition.timeLabelX,
+                        }}
+                    >
+                        {activePosition.timeText}
+                    </div>
+                )}
+
+                <div
+                    ref={surfaceViewportRef}
+                    className="absolute inset-x-0 overflow-hidden"
+                    style={{top: "24px", bottom: "18px", zIndex: 1}}
                 >
-                    {/* 持续脉冲的 halo 动画 (r 从 5 → 16, opacity 从 0.55 → 0, 无限循环) */}
-                    <style>{`
-                        @keyframes poll-trend-dot-pulse {
-                            0%   { r: 5;  opacity: 0.55; }
-                            70%  { r: 16; opacity: 0;    }
-                            100% { r: 16; opacity: 0;    }
-                        }
-                    `}</style>
+                    <div
+                        ref={surfaceRef}
+                        className="absolute inset-0"
+                    />
+                </div>
 
-                    <g transform={`translate(0 ${topPadding})`}>
-                        {/* 整片可交互的透明覆盖层, 用来接收 mousemove */}
-                        <rect
-                            fill="transparent"
-                            height={viewBoxHeight}
-                            width={plotWidth}
-                            x={0}
-                            y={chartTopY}
-                        />
+                {/* crosshair 竖线单独占一层, 从顶部时间文字下方一直拉到 plotWrap 最底,
+                    覆盖 chart canvas (z-1) 和 bucket 日期 (z-3) 之间, 视觉上不会被切. */}
+                {activePosition && (
+                    <div
+                        className="pointer-events-none absolute z-[2] w-px -translate-x-1/2 bg-[rgba(255,255,255,0.22)]"
+                        style={{
+                            left: activePosition.x,
+                            top: "30px",
+                            bottom: "30px",
+                        }}
+                    />
+                )}
 
-                        {/* 竖向 crosshair (跟随 hover) */}
-                        <g
-                            style={{
-                                transform: `translateX(${activeX}px)`,
-                                transition: followTransition,
-                            }}
-                        >
-                            <line
-                                stroke="rgba(255,255,255,0.22)"
-                                strokeWidth="1"
-                                x1={0}
-                                x2={0}
-                                y1={chartTopY}
-                                y2={chartBottomY}
-                            />
-                            {activeDetail && (
-                                <text
-                                    fill="rgba(255,255,255,0.88)"
-                                    fontSize="11"
-                                    fontWeight="500"
-                                    textAnchor="start"
-                                    x={-20}
-                                    y={-18}
-                                >
-                                    {activeDetail}
-                                </text>
-                            )}
-                        </g>
+                {/* 圆点 + 百分比标签层 (沿用 chart canvas 的 y 坐标空间: top 24 / bottom 18) */}
+                <div
+                    className="pointer-events-none absolute inset-x-0 z-[2]"
+                    style={{top: "24px", bottom: "18px"}}
+                >
+                    {activePosition?.values.map((value) => {
+                        const flipLeft = activePosition.x > surfaceSize.width - 86;
+                        const labelX = clamp(
+                            activePosition.x + (flipLeft ? -12 : 12),
+                            4,
+                            Math.max(surfaceSize.width - 4, 4),
+                        );
 
-                        {/* 第一层: 所有线. 使用 pathLength=100 + dashoffset 实现首次绘入.
-                            stroke-opacity 略小于 1, 让两条线在数据相同时叠加色更深, 用户能感知到重合 */}
-                        {trendModel.series.map((series, seriesIndex) => {
-                            const {pastPoints, futurePoints} = splitPointsBySeries[seriesIndex];
-                            return (
-                                <g key={`lines-${series.optionId}`}>
-                                    <path
-                                        d={createSmoothPath(pastPoints)}
-                                        fill="none"
-                                        pathLength="100"
-                                        stroke={series.color}
-                                        strokeDasharray="100"
-                                        strokeDashoffset={mounted ? 0 : 100}
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeOpacity="0.9"
-                                        strokeWidth="2.6"
-                                        style={{transition: `stroke-dashoffset 1.1s cubic-bezier(0.4, 0, 0.2, 1) ${seriesIndex * 0.08}s`}}
-                                    />
-                                    {futurePoints.length > 1 && (
-                                        <path
-                                            d={createSmoothPath(futurePoints)}
-                                            fill="none"
-                                            opacity={mounted ? 1 : 0}
-                                            stroke="rgba(255,255,255,0.22)"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth="2"
-                                            style={{transition: `opacity 0.6s ease-out ${0.8 + seriesIndex * 0.05}s`}}
-                                        />
-                                    )}
-                                </g>
-                            );
-                        })}
-
-                        {/* 第二层: 激活圆点 (脉冲 halo + 实心点) - 跟着 hover 在线上滑.
-                            就算多个 series 落在同一坐标, 后画的圆点会盖住前面, 但是因为下面的标签
-                            层已经做了垂直去重叠, 用户依然能看到每个 series 的百分比. */}
-                        {activePositions.map((pos) => {
-                            const series = trendModel.series[pos.seriesIndex];
-                            return (
-                                <g
-                                    key={`dot-${series.optionId}`}
+                        return (
+                            <React.Fragment key={value.id}>
+                                <div
+                                    className="absolute size-[14px] -translate-x-1/2 -translate-y-1/2"
                                     style={{
-                                        transform: `translate(${pos.x}px, ${pos.y}px)`,
-                                        transition: followTransition,
+                                        left: Math.round(activePosition.x),
+                                        top: Math.round(value.y),
+                                        color: value.color,
                                     }}
                                 >
-                                    <circle
-                                        cx={0}
-                                        cy={0}
-                                        fill={series.color}
+                                    <span
+                                        className="absolute inset-0 rounded-full bg-current opacity-45"
                                         style={{
                                             animation: "poll-trend-dot-pulse 1.8s ease-out infinite",
+                                            transformOrigin: "center",
                                         }}
                                     />
-                                    <circle
-                                        cx={0}
-                                        cy={0}
-                                        fill={series.color}
-                                        r="5.5"
-                                        stroke="#232120"
-                                        strokeWidth="2"
+                                    <span
+                                        className="absolute rounded-full border-2 border-[#232120] bg-current"
+                                        style={{inset: "1.5px"}}
                                     />
-                                </g>
-                            );
-                        })}
+                                </div>
 
-                        {/* 第三层: 百分比标签 (最上层 + 卡片色描边 halo).
-                            y 用 resolveLabelLayout 算出来的「去重叠后」位置. */}
-                        {activePositions.map((pos) => {
-                            const series = trendModel.series[pos.seriesIndex];
-                            const flipLabelToLeft = pos.x > plotWidth - 70;
-                            const labelOffsetX = flipLabelToLeft ? -10 : 10;
-                            const labelY = labelYBySeries.get(pos.seriesIndex) ?? pos.y + 4;
-                            return (
-                                <g
-                                    key={`label-${series.optionId}`}
+                                <div
+                                    className="pointer-events-none absolute flex min-h-[14px] whitespace-nowrap text-[1.2rem] font-medium leading-[14px]"
                                     style={{
-                                        transform: `translate(${pos.x + labelOffsetX}px, ${labelY}px)`,
-                                        transition: followTransition,
+                                        left: Math.round(labelX),
+                                        top: Math.round(value.labelY),
+                                        color: value.color,
+                                        textShadow: "0 0 1px #232120, 0 0 4px #232120, 0 0 6px #232120",
+                                        transform: flipLeft ? "translate(-100%, -50%)" : "translateY(-50%)",
+                                        textAlign: flipLeft ? "right" : "left",
+                                        justifyContent: flipLeft ? "flex-end" : "flex-start",
                                     }}
                                 >
-                                    <text
-                                        fill={series.color}
-                                        fontSize="12"
-                                        fontWeight="500"
-                                        paintOrder="stroke fill"
-                                        stroke="#232120"
-                                        strokeLinejoin="round"
-                                        strokeWidth="3"
-                                        textAnchor={flipLabelToLeft ? "end" : "start"}
-                                        x={0}
-                                        y={0}
-                                    >
-                                        {formatRate(pos.rate)}
-                                    </text>
-                                </g>
-                            );
-                        })}
+                                    {formatRate(value.rate)}
+                                </div>
+                            </React.Fragment>
+                        );
+                    })}
+                </div>
 
-                        {/* 底部 bucket 日期标签 */}
-                        {trendModel.buckets.map((bucket, index) => {
-                            const isActive = index === nearestActiveIndex;
-                            const labelColor = isActive
-                                ? "rgba(255,255,255,0.82)"
-                                : bucket.isFuture
-                                    ? "rgba(255,255,255,0.28)"
-                                    : "rgba(255,255,255,0.5)";
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] h-[18px]">
+                    {preparedTrendModel.buckets.map((bucket, index) => {
+                        const isActive = index === activePosition?.activeBucketIndex;
+                        const bucketX = activePosition
+                            ? getBucketCoordinates(chartRef.current, preparedTrendModel.buckets, surfaceSize.width)[index] ?? 0
+                            : 0;
+                        const color = isActive
+                            ? "rgba(255,255,255,0.82)"
+                            : (bucket.isFuture ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.5)");
 
-                            return (
-                                <text
-                                    key={bucket.key}
-                                    fill={labelColor}
-                                    fontSize="10"
-                                    style={{transition: "fill 0.2s ease"}}
-                                    textAnchor="middle"
-                                    x={index * xStep}
-                                    y={plotHeight + 30}
-                                >
-                                    {bucket.label}
-                                </text>
-                            );
-                        })}
-                    </g>
-                </svg>
+                        return (
+                            <div
+                                key={bucket.key}
+                                className="absolute bottom-0 -translate-x-1/2 whitespace-nowrap text-[1rem] leading-none"
+                                style={{
+                                    left: bucketX,
+                                    color,
+                                }}
+                            >
+                                {bucket.label}
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <style>{`
+                    @keyframes poll-trend-dot-pulse {
+                        0% {
+                            transform: scale(1);
+                            opacity: 0.45;
+                        }
+
+                        70% {
+                            transform: scale(2.3);
+                            opacity: 0;
+                        }
+
+                        100% {
+                            transform: scale(2.3);
+                            opacity: 0;
+                        }
+                    }
+                `}</style>
             </div>
         </div>
     );

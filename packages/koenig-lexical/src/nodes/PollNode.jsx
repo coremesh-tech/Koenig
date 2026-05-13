@@ -47,6 +47,8 @@ export class PollNode extends KoenigDecoratorNode {
     __description;
     __imageSrc;
     __expiresAt;
+    __publishedAt;
+    __createdAt;
     __pollType;
     __status;
     __answerRevealed;
@@ -85,6 +87,8 @@ export class PollNode extends KoenigDecoratorNode {
         this.__description = dataset.description || '';
         this.__imageSrc = dataset.imageSrc || dataset.image_src || '';
         this.__expiresAt = dataset.expiresAt || dataset.expires_at || '';
+        this.__publishedAt = dataset.publishedAt || dataset.published_at || '';
+        this.__createdAt = dataset.createdAt || dataset.created_at || '';
         // 兼容历史值 'multi' → 'multiple'
         {
             const rawPollType = dataset.pollType || dataset.poll_type || 'single';
@@ -149,6 +153,14 @@ export class PollNode extends KoenigDecoratorNode {
         return this.getLatest().__expiresAt;
     }
 
+    get publishedAt() {
+        return this.getLatest().__publishedAt;
+    }
+
+    get createdAt() {
+        return this.getLatest().__createdAt;
+    }
+
     get pollType() {
         return this.getLatest().__pollType;
     }
@@ -193,6 +205,14 @@ export class PollNode extends KoenigDecoratorNode {
         this.getWritable().__expiresAt = value;
     }
 
+    setPublishedAt(value = '') {
+        this.getWritable().__publishedAt = value;
+    }
+
+    setCreatedAt(value = '') {
+        this.getWritable().__createdAt = value;
+    }
+
     setOptions(options = []) {
         this.getWritable().__options = sanitizeOptions(options);
     }
@@ -231,6 +251,8 @@ export class PollNode extends KoenigDecoratorNode {
         description,
         imageSrc,
         expiresAt,
+        publishedAt,
+        createdAt,
         pollType,
         status,
         answerRevealed,
@@ -245,6 +267,8 @@ export class PollNode extends KoenigDecoratorNode {
         writable.__description = description ?? writable.__description;
         writable.__imageSrc = imageSrc ?? writable.__imageSrc;
         writable.__expiresAt = expiresAt ?? writable.__expiresAt;
+        writable.__publishedAt = publishedAt ?? writable.__publishedAt;
+        writable.__createdAt = createdAt ?? writable.__createdAt;
         writable.__pollType = pollType ?? writable.__pollType;
         writable.__status = status ?? writable.__status;
         writable.__answerRevealed = Boolean(answerRevealed ?? writable.__answerRevealed);
@@ -261,6 +285,8 @@ export class PollNode extends KoenigDecoratorNode {
             description: this.description,
             imageSrc: this.imageSrc,
             expiresAt: this.expiresAt,
+            publishedAt: this.publishedAt,
+            createdAt: this.createdAt,
             pollType: this.pollType,
             status: this.status,
             answerRevealed: this.answerRevealed,
@@ -291,6 +317,8 @@ export class PollNode extends KoenigDecoratorNode {
                     correctOptionIds={this.correctOptionIds}
                     description={this.description}
                     expiresAt={this.expiresAt}
+                    publishedAt={this.publishedAt}
+                    createdAt={this.createdAt}
                     imageSrc={this.imageSrc}
                     nodeKey={this.getKey()}
                     options={this.options}

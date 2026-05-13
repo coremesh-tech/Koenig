@@ -17,7 +17,7 @@ export const TREND_PALETTE = [
 const PALETTE_MIN_HUE_DISTANCE = 22;   // 生成色相必须离每个固定色色相 >= 这个度数
 const OVERFLOW_MIN_HUE_DISTANCE = 18;  // 生成色相必须离已生成的溢出色 >= 这个度数
 
-const DEFAULT_WINDOW_HOURS = 24;       // 默认抓最近 24 小时
+const DEFAULT_WINDOW_HOURS = 24;       // 缺少生命周期时间时, 退化到最近 24 小时
 const DEFAULT_DISPLAY_BUCKETS = 7;     // 图表上最终显示 7 个 bucket, 视觉密度合适
 
 // ---- 颜色辅助 ----
@@ -94,17 +94,34 @@ export function getOverflowColor(optionId, usedHues) {
     return `hsl(${Math.round(hue)}, 72%, 62%)`;
 }
 
+function resolveWindowBoundary(value) {
+    const milliseconds = value ? new Date(value).getTime() : NaN;
+    return Number.isFinite(milliseconds) ? milliseconds : null;
+}
+
 /**
  * 计算 trends 接口的查询窗口.
- * - 没到期 / 没设结束时间: 以「现在」为右端
- * - 已经到期: 以 expiresAt 为右端 (没必要查未来 0 数据点)
- * 左端永远是右端往前推 windowHours 个小时.
+ * - from: 优先 publishedAt, 再退化到 createdAt
+ * - to:   没到期 / 没设结束时间时用现在; 已到期则用 expiresAt
+ * - 若开始时间缺失, 再退化到最近 24 小时, 保证 from 始终合法
  */
-export function buildTrendsQueryWindow({expiresAt, windowHours = DEFAULT_WINDOW_HOURS} = {}) {
+export function buildTrendsQueryWindow({
+    createdAt,
+    expiresAt,
+    publishedAt,
+    windowHours = DEFAULT_WINDOW_HOURS
+} = {}) {
     const nowMs = Date.now();
-    const expiresMs = expiresAt ? new Date(expiresAt).getTime() : NaN;
-    const toMs = Number.isFinite(expiresMs) && expiresMs <= nowMs ? expiresMs : nowMs;
-    const fromMs = toMs - windowHours * 60 * 60 * 1000;
+    const expiresMs = resolveWindowBoundary(expiresAt);
+    const publishedMs = resolveWindowBoundary(publishedAt);
+    const createdMs = resolveWindowBoundary(createdAt);
+    const toMs = expiresMs && expiresMs <= nowMs ? expiresMs : nowMs;
+    const fallbackFromMs = toMs - windowHours * 60 * 60 * 1000;
+    const candidateFromMs = publishedMs || createdMs || fallbackFromMs;
+    console.log(publishedMs, 'publishedMs')
+    console.log(candidateFromMs, toMs, 'toMs')
+    console.log(candidateFromMs < toMs, 'candidateFromMs < toMs')
+    const fromMs = candidateFromMs < toMs ? candidateFromMs : fallbackFromMs;
 
     return {
         from: new Date(fromMs).toISOString(),

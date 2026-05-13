@@ -114,7 +114,7 @@ export async function publishAdminPollResults(pollId, {correctOptionIds = []} = 
         return config.publishPollResults(pollId, {correctOptionIds});
     }
 
-    return request(`/admin/polls/${pollId}/publish-results`, {
+    return request(`/admin/polls/${pollId}/reveal-answer`, {
         method: 'POST',
         body: {correct_option_ids: correctOptionIds},
         cardConfig

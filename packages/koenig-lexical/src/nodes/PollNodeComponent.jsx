@@ -153,15 +153,15 @@ function PollPreviewOption({
         return (
             <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 text-[1.85rem] font-semibold leading-none text-white">
-                        <span>{option.text}</span>
+                    <div className="flex min-w-0 flex-1 items-center gap-2 text-[1.85rem] font-semibold text-white">
+                        <span className="min-w-0 truncate" title={option.text}>{option.text}</span>
                         {isCorrect && (
-                            <span className="rounded-md bg-[#22C55E] px-2 py-1 text-[1.2rem] font-semibold leading-none text-white">
+                            <span className="shrink-0 rounded-md bg-[#22C55E] px-2 py-1 text-[1.2rem] font-semibold leading-none text-white">
                                 Result
                             </span>
                         )}
                     </div>
-                    <span className="text-[1.8rem] font-semibold text-white">
+                    <span className="shrink-0 text-[1.8rem] font-semibold text-white">
                         {formatVoteRate(voteRate)}
                     </span>
                 </div>
@@ -187,13 +187,14 @@ function PollPreviewOption({
                     style={{ width: fillWidth }}
                 />
             )}
-            <div className="relative z-[1] flex items-center justify-between gap-4 px-5 py-4">
+            <div className="relative z-[1] flex items-center justify-between gap-4 px-[18px] py-[12px]">
                 <div
-                    className={`inline-flex items-center rounded-[12px] text-[1.85rem] font-semibold leading-none ${isSelected ? "bg-white/12" : ""}`}
+                    className={`min-w-0 flex-1 truncate rounded-[12px] text-[1.85rem] font-semibold ${isSelected ? "bg-white/12" : ""}`}
+                    title={option.text}
                 >
                     {option.text}
                 </div>
-                <div className="flex items-center gap-3 text-[1.8rem] font-semibold">
+                <div className="flex shrink-0 items-center gap-3 text-[1.8rem] font-semibold">
                     <span>{formatVoteRate(voteRate)}</span>
                 </div>
             </div>
@@ -204,6 +205,7 @@ function PollPreviewOption({
 export function PollNodeComponent({
     answerRevealed,
     correctOptionIds,
+    createdAt,
     description,
     expiresAt,
     imageSrc,
@@ -211,6 +213,7 @@ export function PollNodeComponent({
     options,
     pollId,
     pollType = "single",
+    publishedAt,
     selectedOptionIds,
     status,
     title,
@@ -335,6 +338,8 @@ export function PollNodeComponent({
                           description: fallback.description || description,
                           image_src: fallback.image_src || imageSrc,
                           expires_at: fallback.expires_at || expiresAt,
+                          published_at: fallback.published_at || publishedAt,
+                          created_at: fallback.created_at || createdAt,
                           poll_type: fallback.poll_type || "single",
                           status: fallback.status || status,
                           answer_revealed:
@@ -385,6 +390,8 @@ export function PollNodeComponent({
                     description: poll.description,
                     imageSrc: poll.image_src,
                     expiresAt: poll.expires_at,
+                    publishedAt: poll.published_at,
+                    createdAt: poll.created_at,
                     pollType: poll.poll_type,
                     status: poll.status || fallback.status || "draft",
                     answerRevealed: poll.answer_revealed,
@@ -394,15 +401,19 @@ export function PollNodeComponent({
                     totalVotes: votes.total_votes ?? fallback.total_votes ?? 0,
                 });
             });
+
+            return {poll, votes};
         },
         [
             answerRevealed,
             cardConfig,
+            createdAt,
             correctOptionIds,
             description,
             expiresAt,
             imageSrc,
             options,
+            publishedAt,
             selectedOptionIds,
             status,
             title,
@@ -736,6 +747,8 @@ export function PollNodeComponent({
                     description: payload.description,
                     imageSrc: imageSrc,
                     expiresAt: payload.expires_at || "",
+                    publishedAt,
+                    createdAt,
                     pollType: payload.poll_type,
                     status: nextStatus,
                     answerRevealed,
@@ -810,6 +823,8 @@ export function PollNodeComponent({
 
     React.useEffect(() => {
         if (!showPreview || !pollId) {
+            previewSyncPollIdRef.current = null;
+            setTrendsResponse(null);
             return;
         }
 
@@ -818,42 +833,26 @@ export function PollNodeComponent({
         }
 
         previewSyncPollIdRef.current = pollId;
+        setTrendsResponse(null);
+        syncPollData(pollId)
+            .then(({poll}) => {
+                console.log(poll, 'poll')
+                const lifecycleWindow = buildTrendsQueryWindow({
+                    expiresAt: poll?.expires_at,
+                    publishedAt: poll?.published_at,
+                    createdAt: poll?.created_at,
+                });
 
-        syncPollData(pollId).catch(() => {
-            previewSyncPollIdRef.current = null;
-        });
-    }, [pollId, showPreview, syncPollData]);
-
-    // 拉取历史走势数据. 切换 pollId / 进入 preview / expiresAt 变化时重新计算窗口并请求
-    React.useEffect(() => {
-        if (!showPreview || !pollId) {
-            setTrendsResponse(null);
-            return undefined;
-        }
-
-        let cancelled = false;
-        const window = buildTrendsQueryWindow({expiresAt});
-
-        getAdminPollTrends(pollId, window, cardConfig)
-            .then((response) => {
-                if (cancelled) {
-                    return;
-                }
-                const hasPoints = Array.isArray(response?.points) && response.points.length > 0;
-                setTrendsResponse(hasPoints ? response : null);
+                return getAdminPollTrends(pollId, lifecycleWindow, cardConfig)
+                    .then((response) => {
+                        const hasPoints = Array.isArray(response?.points) && response.points.length > 0;
+                        setTrendsResponse(hasPoints ? response : null);
+                    });
             })
             .catch(() => {
-                if (cancelled) {
-                    return;
-                }
-                // 接口挂了就清空, 渲染层会隐藏图表那一列
                 setTrendsResponse(null);
             });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [cardConfig, expiresAt, pollId, showPreview]);
+    }, [cardConfig, pollId, showPreview, syncPollData]);
 
     if (showPreview) {
         return (
