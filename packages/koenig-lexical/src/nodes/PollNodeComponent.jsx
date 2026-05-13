@@ -790,6 +790,7 @@ export function PollNodeComponent({
 
     const previewImage = imagePreview || imageSrc;
     const isCreated = Boolean(pollId);
+    const isPollTypeLocked = isCreated;
     const isPublished = status === "published";
     const showPreview = isCreated && isPublished && !isEditing;
     const createButtonLabel = pollId ? "Update vote" : "Create vote";
@@ -1130,7 +1131,8 @@ export function PollNodeComponent({
                 </div>
                 <div className="relative flex items-center rounded-xl bg-white px-4 py-1 shadow-[0_1px_2px_rgba(15,23,42,0.02)]">
                     <select
-                        className="h-11 w-full cursor-pointer appearance-none border-0 bg-transparent pr-8 text-[1.65rem] text-grey-900 outline-none"
+                        className={`h-11 w-full appearance-none border-0 bg-transparent pr-8 text-[1.65rem] text-grey-900 outline-none ${isPollTypeLocked ? "cursor-not-allowed text-grey-500" : "cursor-pointer"}`}
+                        disabled={isPollTypeLocked}
                         value={pollType === "multiple" ? "multiple" : "single"}
                         onChange={(event) => updateNode((node) => node.setPollType(event.target.value))}
                     >
