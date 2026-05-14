@@ -1,4 +1,6 @@
-const DEFAULT_POLLS_API_BASE_URL = 'http://localhost:3000/market-topic';
+// const DEFAULT_POLLS_API_BASE_URL = 'http://localhost:3000/market-topic';
+const DEFAULT_POLLS_API_BASE_URL = 'https://test-api.predictionmarkets.org/market-topic';
+// const DEFAULT_POLLS_API_BASE_URL = 'https://api.predictionmarkets.org/market-topic';
 
 function stripTrailingSlash(url = '') {
     return url.replace(/\/+$/, '');
