@@ -15,6 +15,20 @@ function resolveBaseUrl(cardConfig = {}) {
     return stripTrailingSlash(config.baseUrl || import.meta.env?.VITE_POLL_API_BASE_URL || DEFAULT_POLLS_API_BASE_URL);
 }
 
+function unwrapGhostPollsMixinPayload(payload) {
+    if (!payload || typeof payload !== 'object' || !Object.prototype.hasOwnProperty.call(payload, 'polls_mixin')) {
+        return payload;
+    }
+
+    const wrappedPayload = payload.polls_mixin;
+
+    if (Array.isArray(wrappedPayload)) {
+        return wrappedPayload[0] ?? null;
+    }
+
+    return wrappedPayload;
+}
+
 async function resolveHeaders(cardConfig = {}) {
     const config = resolvePollsApiConfig(cardConfig);
     const dynamicHeaders = typeof config.getHeaders === 'function' ? await config.getHeaders() : {};
@@ -43,7 +57,7 @@ async function request(path, {method = 'GET', body, cardConfig} = {}) {
         throw new Error(message);
     }
 
-    return payload;
+    return unwrapGhostPollsMixinPayload(payload);
 }
 
 export async function saveAdminPoll(payload, cardConfig = {}) {
