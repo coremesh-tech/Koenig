@@ -829,7 +829,6 @@ export function PollNodeComponent({
         setTrendsResponse(null);
         syncPollData(pollId)
             .then(({poll}) => {
-                console.log(poll, 'poll')
                 const lifecycleWindow = buildTrendsQueryWindow({
                     expiresAt: poll?.expires_at,
                     publishedAt: poll?.published_at,

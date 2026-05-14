@@ -118,9 +118,6 @@ export function buildTrendsQueryWindow({
     const toMs = expiresMs && expiresMs <= nowMs ? expiresMs : nowMs;
     const fallbackFromMs = toMs - windowHours * 60 * 60 * 1000;
     const candidateFromMs = publishedMs || createdMs || fallbackFromMs;
-    console.log(publishedMs, 'publishedMs')
-    console.log(candidateFromMs, toMs, 'toMs')
-    console.log(candidateFromMs < toMs, 'candidateFromMs < toMs')
     const fromMs = candidateFromMs < toMs ? candidateFromMs : fallbackFromMs;
 
     return {

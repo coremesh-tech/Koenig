@@ -111,7 +111,7 @@ export function PollPublishResultsDialog({
 
     return (
         <div
-            className="not-kg-prose fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-6 font-sans"
+            className="not-kg-prose fixed inset-0 z-[1000] flex items-center justify-center p-6 font-sans"
             data-kg-allow-clickthrough="false"
             role="dialog"
             aria-modal="true"
