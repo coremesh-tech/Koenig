@@ -165,8 +165,8 @@ function resolveNearestBucketIndex(bucketXs, x) {
 }
 
 export function PollTrendChart({
-    // 当前编辑器里改成了 hover-only 交互, 不再使用外部 activeIndex 做默认高亮;
-    // 这里保留 prop 只是兼容调用方.
+    // 当前实现默认显示 trendModel.activeIndex 对应的激活点;
+    // hover 时再额外显示时间和百分比标签. 这里保留 prop 只是兼容调用方.
     // eslint-disable-next-line no-unused-vars
     activeIndex,
     onActivateIndex,
@@ -202,13 +202,14 @@ export function PollTrendChart({
             return;
         }
 
-        if (hoverXRef.current === null) {
-            setActivePosition(null);
-            return;
-        }
-
-        const hoveredX = clamp(hoverXRef.current, bucketXs[0], bucketXs[bucketXs.length - 1]);
-        const activeBucketIndex = resolveNearestBucketIndex(bucketXs, hoveredX);
+        const isHovering = hoverXRef.current !== null;
+        const defaultX = bucketXs[prepared.activeIndex] ?? bucketXs[bucketXs.length - 1] ?? 0;
+        const hoveredX = isHovering
+            ? clamp(hoverXRef.current, bucketXs[0], bucketXs[bucketXs.length - 1])
+            : defaultX;
+        const activeBucketIndex = isHovering
+            ? resolveNearestBucketIndex(bucketXs, hoveredX)
+            : prepared.activeIndex;
         const activeX = bucketXs[activeBucketIndex] ?? hoveredX;
         const activeBucket = prepared.buckets[activeBucketIndex];
         const timeText = activeBucket?.chartMs
@@ -248,6 +249,7 @@ export function PollTrendChart({
 
         const nextPosition = {
             x: activeX,
+            isHovering,
             bucketXs,
             timeText,
             activeBucketIndex,
@@ -464,7 +466,7 @@ export function PollTrendChart({
 
         const handlePointerLeave = () => {
             hoverXRef.current = null;
-            setActivePosition(null);
+            updateOverlay();
         };
 
         const handleCrosshairMove = (event) => {
@@ -520,7 +522,7 @@ export function PollTrendChart({
                     />
                 </div>
 
-                {activePosition && (
+                {activePosition?.isHovering && (
                     <div
                         className="pointer-events-none absolute z-[2] w-px bg-[rgba(255,255,255,0.22)]"
                         style={{
@@ -568,21 +570,23 @@ export function PollTrendChart({
                                     />
                                 </div>
 
-                                <div
-                                    className="pointer-events-none absolute flex min-h-[14px] whitespace-nowrap text-[1.2rem] font-medium leading-[14px]"
-                                    style={{
-                                        left: Math.round(labelX),
-                                        top: Math.round(value.labelY),
-                                        color: value.color,
-                                        textShadow: "0 0 1px #232120, 0 0 4px #232120, 0 0 6px #232120",
-                                        transform: flipLeft ? "translate(-100%, -50%)" : "translateY(-50%)",
-                                        textAlign: flipLeft ? "right" : "left",
-                                        justifyContent: flipLeft ? "flex-end" : "flex-start",
-                                        zIndex: 2,
-                                    }}
-                                >
-                                    {`${activePosition.timeText} ${formatRate(value.rate)}`}
-                                </div>
+                                {activePosition.isHovering && (
+                                    <div
+                                        className="pointer-events-none absolute flex min-h-[14px] whitespace-nowrap text-[1.2rem] font-medium leading-[14px]"
+                                        style={{
+                                            left: Math.round(labelX),
+                                            top: Math.round(value.labelY),
+                                            color: value.color,
+                                            textShadow: "0 0 1px #232120, 0 0 4px #232120, 0 0 6px #232120",
+                                            transform: flipLeft ? "translate(-100%, -50%)" : "translateY(-50%)",
+                                            textAlign: flipLeft ? "right" : "left",
+                                            justifyContent: flipLeft ? "flex-end" : "flex-start",
+                                            zIndex: 2,
+                                        }}
+                                    >
+                                        {`${activePosition.timeText} ${formatRate(value.rate)}`}
+                                    </div>
+                                )}
                             </React.Fragment>
                         );
                     })}
