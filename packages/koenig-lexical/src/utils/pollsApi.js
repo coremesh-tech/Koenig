@@ -1,6 +1,7 @@
 // 同源走 Ghost admin API 代理层, 由 Ghost 服务端转发到 prediction markets 的 /market-topic.
 // 外部环境如果需要直连, 仍然可以通过 cardConfig.pollsApi.baseUrl 或 VITE_POLL_API_BASE_URL 覆盖.
 const DEFAULT_POLLS_API_BASE_URL = '/ghost/api/admin/polls_mixin';
+// const DEFAULT_POLLS_API_BASE_URL = 'http://localhost:3000';
 
 function stripTrailingSlash(url = '') {
     return url.replace(/\/+$/, '');

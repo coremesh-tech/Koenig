@@ -46,6 +46,7 @@ export class PollNode extends KoenigDecoratorNode {
     __title;
     __description;
     __imageSrc;
+    __allowAnonymousVote;
     __expiresAt;
     __publishedAt;
     __createdAt;
@@ -86,6 +87,7 @@ export class PollNode extends KoenigDecoratorNode {
         this.__title = dataset.title || '';
         this.__description = dataset.description || '';
         this.__imageSrc = dataset.imageSrc || dataset.image_src || '';
+        this.__allowAnonymousVote = Boolean(dataset.allowAnonymousVote ?? dataset.allow_anonymous_vote ?? true);
         this.__expiresAt = dataset.expiresAt || dataset.expires_at || '';
         this.__publishedAt = dataset.publishedAt || dataset.published_at || '';
         this.__createdAt = dataset.createdAt || dataset.created_at || '';
@@ -149,6 +151,10 @@ export class PollNode extends KoenigDecoratorNode {
         return this.getLatest().__imageSrc;
     }
 
+    get allowAnonymousVote() {
+        return Boolean(this.getLatest().__allowAnonymousVote);
+    }
+
     get expiresAt() {
         return this.getLatest().__expiresAt;
     }
@@ -201,6 +207,10 @@ export class PollNode extends KoenigDecoratorNode {
         this.getWritable().__imageSrc = value;
     }
 
+    setAllowAnonymousVote(value = true) {
+        this.getWritable().__allowAnonymousVote = Boolean(value);
+    }
+
     setExpiresAt(value = '') {
         this.getWritable().__expiresAt = value;
     }
@@ -250,6 +260,7 @@ export class PollNode extends KoenigDecoratorNode {
         title,
         description,
         imageSrc,
+        allowAnonymousVote,
         expiresAt,
         publishedAt,
         createdAt,
@@ -266,6 +277,7 @@ export class PollNode extends KoenigDecoratorNode {
         writable.__title = title ?? writable.__title;
         writable.__description = description ?? writable.__description;
         writable.__imageSrc = imageSrc ?? writable.__imageSrc;
+        writable.__allowAnonymousVote = Boolean(allowAnonymousVote ?? writable.__allowAnonymousVote);
         writable.__expiresAt = expiresAt ?? writable.__expiresAt;
         writable.__publishedAt = publishedAt ?? writable.__publishedAt;
         writable.__createdAt = createdAt ?? writable.__createdAt;
@@ -284,6 +296,7 @@ export class PollNode extends KoenigDecoratorNode {
             title: this.title,
             description: this.description,
             imageSrc: this.imageSrc,
+            allowAnonymousVote: this.allowAnonymousVote,
             expiresAt: this.expiresAt,
             publishedAt: this.publishedAt,
             createdAt: this.createdAt,
@@ -317,6 +330,7 @@ export class PollNode extends KoenigDecoratorNode {
                     correctOptionIds={this.correctOptionIds}
                     description={this.description}
                     expiresAt={this.expiresAt}
+                    allowAnonymousVote={this.allowAnonymousVote}
                     publishedAt={this.publishedAt}
                     createdAt={this.createdAt}
                     imageSrc={this.imageSrc}

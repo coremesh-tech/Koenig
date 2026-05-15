@@ -25,8 +25,26 @@ import {
 import { PollPublishResultsDialog } from "./PollPublishResultsDialog";
 import { PollTrendChart } from "./PollTrendChart";
 import { buildTrendsQueryWindow, mapTrendsResponseToModel } from "./pollTrendModel";
+import { Toggle } from "../components/ui/Toggle";
+import { useClickOutside } from "../hooks/useClickOutside";
+import useAutoExpandTextArea from "../utils/autoExpandTextArea";
 import { openFileSelection } from "../utils/openFileSelection.js";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+
+const MONTH_OPTIONS = [
+    {label: "Jan", value: 1},
+    {label: "Feb", value: 2},
+    {label: "Mar", value: 3},
+    {label: "Apr", value: 4},
+    {label: "May", value: 5},
+    {label: "Jun", value: 6},
+    {label: "Jul", value: 7},
+    {label: "Aug", value: 8},
+    {label: "Sep", value: 9},
+    {label: "Oct", value: 10},
+    {label: "Nov", value: 11},
+    {label: "Dec", value: 12}
+];
 
 function createOptionId() {
     const uuid =
@@ -43,21 +61,6 @@ function formatVoteCount(value) {
     return new Intl.NumberFormat("en-US").format(Number(value || 0));
 }
 
-function toDateTimeLocalValue(value) {
-    if (!value) {
-        return "";
-    }
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return "";
-    }
-
-    const offset = date.getTimezoneOffset();
-    const localDate = new Date(date.getTime() - offset * 60000);
-    return localDate.toISOString().slice(0, 16);
-}
-
 function toApiDateTime(value) {
     if (!value) {
         return null;
@@ -71,6 +74,61 @@ function toApiDateTime(value) {
     return date.toISOString();
 }
 
+function padTimeValue(value) {
+    return `${value}`.padStart(2, "0");
+}
+
+function getPickerBaseDate(value) {
+    const date = value ? new Date(value) : new Date();
+
+    if (Number.isNaN(date.getTime())) {
+        return new Date();
+    }
+
+    return date;
+}
+
+function createPickerValue(value) {
+    const date = getPickerBaseDate(value);
+
+    return {
+        day: date.getDate(),
+        hour: date.getHours(),
+        minute: date.getMinutes(),
+        month: date.getMonth() + 1,
+        year: date.getFullYear()
+    };
+}
+
+function getDaysInMonth(year, month) {
+    return new Date(year, month, 0).getDate();
+}
+
+function normalizePickerValue(value) {
+    const month = Math.max(1, Math.min(12, Number(value.month) || 1));
+    const year = Math.max(new Date().getFullYear(), Number(value.year) || new Date().getFullYear());
+    const maxDay = getDaysInMonth(year, month);
+
+    return {
+        day: Math.max(1, Math.min(maxDay, Number(value.day) || 1)),
+        hour: Math.max(0, Math.min(23, Number(value.hour) || 0)),
+        minute: Math.max(0, Math.min(59, Number(value.minute) || 0)),
+        month,
+        year
+    };
+}
+
+function pickerValueToInputValue(value) {
+    const normalizedValue = normalizePickerValue(value);
+    return `${normalizedValue.year}-${padTimeValue(normalizedValue.month)}-${padTimeValue(normalizedValue.day)}T${padTimeValue(normalizedValue.hour)}:${padTimeValue(normalizedValue.minute)}`;
+}
+
+function getYearOptions() {
+    const currentYear = new Date().getFullYear();
+
+    return Array.from({length: 11}, (_, index) => currentYear + index);
+}
+
 function formatDisplayDate(value) {
     if (!value) {
         return "";
@@ -81,7 +139,31 @@ function formatDisplayDate(value) {
         return value;
     }
 
-    return date.toISOString().slice(0, 10);
+    return new Intl.DateTimeFormat("en-US", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+    }).format(date);
+}
+
+function formatEditorDateTime(value) {
+    if (!value) {
+        return "Select end date";
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return "Select end date";
+    }
+
+    const meridiem = date.getHours() >= 12 ? "PM" : "AM";
+    const timeLabel = `${padTimeValue(date.getHours())}:${padTimeValue(date.getMinutes())}${meridiem}`;
+
+    return `${new Intl.DateTimeFormat("en-US", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+    }).format(date)} ${timeLabel}`;
 }
 
 function isExpired(value) {
@@ -200,6 +282,7 @@ function PollPreviewOption({
 
 export function PollNodeComponent({
     answerRevealed,
+    allowAnonymousVote = true,
     correctOptionIds,
     createdAt,
     description,
@@ -238,6 +321,9 @@ export function PollNodeComponent({
     );
     const [isEndDateInputActive, setIsEndDateInputActive] =
         React.useState(false);
+    const [endDatePickerValue, setEndDatePickerValue] = React.useState(() =>
+        createPickerValue(expiresAt),
+    );
     const [showMediaFields, setShowMediaFields] = React.useState(
         Boolean(description || imageSrc),
     );
@@ -246,12 +332,18 @@ export function PollNodeComponent({
     );
     const menuRef = React.useRef(null);
     const imageInputRef = React.useRef(null);
-    const endDateInputRef = React.useRef(null);
+    const endDatePickerRef = React.useRef(null);
+    const titleInputRef = React.useRef(null);
     const previewSyncPollIdRef = React.useRef(null);
     const imageUploader = fileUploader.useFileUpload("image") || {};
     const imageMimeTypes = fileUploader.fileTypes?.image?.mimeTypes || [
         "image/*",
     ];
+
+    useAutoExpandTextArea({
+        el: titleInputRef,
+        value: draftTitle,
+    });
 
     React.useEffect(() => {
         if (description || imageSrc) {
@@ -266,9 +358,7 @@ export function PollNodeComponent({
     }, [expiresAt]);
 
     React.useEffect(() => {
-        if (expiresAt) {
-            setIsEndDateInputActive(false);
-        }
+        setEndDatePickerValue(createPickerValue(expiresAt));
     }, [expiresAt]);
 
     React.useEffect(() => {
@@ -306,6 +396,10 @@ export function PollNodeComponent({
         };
     }, [menuOpen]);
 
+    useClickOutside(isEndDateInputActive, endDatePickerRef, () => {
+        setIsEndDateInputActive(false);
+    });
+
     const updateNode = React.useCallback(
         (updater) => {
             editor.update(() => {
@@ -333,6 +427,9 @@ export function PollNodeComponent({
                           title: fallback.title || title,
                           description: fallback.description || description,
                           image_src: fallback.image_src || imageSrc,
+                          allow_anonymous_vote:
+                              fallback.allow_anonymous_vote ??
+                              allowAnonymousVote,
                           expires_at: fallback.expires_at || expiresAt,
                           published_at: fallback.published_at || publishedAt,
                           created_at: fallback.created_at || createdAt,
@@ -385,6 +482,7 @@ export function PollNodeComponent({
                     title: poll.title,
                     description: poll.description,
                     imageSrc: poll.image_src,
+                    allowAnonymousVote: poll.allow_anonymous_vote,
                     expiresAt: poll.expires_at,
                     publishedAt: poll.published_at,
                     createdAt: poll.created_at,
@@ -402,6 +500,7 @@ export function PollNodeComponent({
         },
         [
             answerRevealed,
+            allowAnonymousVote,
             cardConfig,
             createdAt,
             correctOptionIds,
@@ -448,17 +547,32 @@ export function PollNodeComponent({
         updateNode((node) => node.setDescription(nextDescription));
     };
 
-    const handleExpiresAtChange = (event) => {
-        updateNode((node) => node.setExpiresAt(event.target.value));
-    };
-
     const handleActivateEndDateInput = () => {
         setIsEndDateInputActive(true);
+        setEndDatePickerValue(createPickerValue(expiresAt));
+    };
 
-        requestAnimationFrame(() => {
-            endDateInputRef.current?.focus();
-            endDateInputRef.current?.showPicker?.();
-        });
+    const handleEndDatePickerChange = (key, nextValue) => {
+        setEndDatePickerValue((currentValue) =>
+            normalizePickerValue({
+                ...currentValue,
+                [key]: Number(nextValue)
+            }),
+        );
+    };
+
+    const handleApplyEndDate = () => {
+        updateNode((node) =>
+            node.setExpiresAt(pickerValueToInputValue(endDatePickerValue)),
+        );
+        setIsEndDateInputActive(false);
+    };
+
+    const handleClearEndDate = () => {
+        setShowEndDateField(false);
+        setIsEndDateInputActive(false);
+        setEndDatePickerValue(createPickerValue(""));
+        updateNode((node) => node.setExpiresAt(""));
     };
 
     const commitOptionText = React.useCallback(
@@ -503,6 +617,10 @@ export function PollNodeComponent({
     };
 
     const handleAddOption = () => {
+        if (pollId) {
+            return;
+        }
+
         updateNode((node) =>
             node.setOptions([
                 ...node.options,
@@ -517,7 +635,7 @@ export function PollNodeComponent({
     };
 
     const handleRemoveOption = (index) => {
-        if (options.length <= 2) {
+        if (pollId || options.length <= 2) {
             return;
         }
 
@@ -668,9 +786,13 @@ export function PollNodeComponent({
 
     const handleImageInputChange = async (event) => {
         await handleImageUpload(event.target.files);
+        event.target.value = "";
     };
 
     const handleRemoveImage = () => {
+        if (imageInputRef.current) {
+            imageInputRef.current.value = "";
+        }
         updateNode((node) => node.setImageSrc(""));
     };
 
@@ -720,6 +842,7 @@ export function PollNodeComponent({
             title: trimmedTitle,
             description: draftDescription.trim(),
             image_src: imageSrc,
+            allow_anonymous_vote: allowAnonymousVote,
             expires_at: toApiDateTime(expiresAt),
             poll_type: normalizedPollType,
             correct_option_ids: correctOptionIds,
@@ -741,6 +864,7 @@ export function PollNodeComponent({
                     title: trimmedTitle,
                     description: payload.description,
                     imageSrc: imageSrc,
+                    allowAnonymousVote,
                     expiresAt: payload.expires_at || "",
                     publishedAt,
                     createdAt,
@@ -786,13 +910,30 @@ export function PollNodeComponent({
     const previewImage = imagePreview || imageSrc;
     const isCreated = Boolean(pollId);
     const isPollTypeLocked = isCreated;
+    const isOptionsStructureLocked = isCreated;
     const isPublished = status === "published";
     const showPreview = isCreated && isPublished && !isEditing;
-    const createButtonLabel = pollId ? "Update vote" : "Create vote";
+    const createButtonLabel = pollId ? "Update poll" : "Create poll";
     // 没设结束时间 → 直接可发布; 设了结束时间 → 必须等过期才能发布
     // 已经公布过则隐藏入口, 避免重复操作
     const canPublishResults = (!expiresAt || isExpired(expiresAt)) && !answerRevealed;
-    const minEndDateValue = toDateTimeLocalValue(new Date().toISOString());
+    const yearOptions = React.useMemo(() => getYearOptions(), []);
+    const dayOptions = React.useMemo(() => {
+        const daysInMonth = getDaysInMonth(
+            endDatePickerValue.year,
+            endDatePickerValue.month,
+        );
+
+        return Array.from({length: daysInMonth}, (_, index) => index + 1);
+    }, [endDatePickerValue.month, endDatePickerValue.year]);
+    const hourOptions = React.useMemo(
+        () => Array.from({length: 24}, (_, index) => index),
+        [],
+    );
+    const minuteOptions = React.useMemo(
+        () => Array.from({length: 60}, (_, index) => index),
+        [],
+    );
 
     // 图表的趋势数据: 只用 /admin/polls/:id/trends 的真实数据.
     // 接口未返回 / 空 / 出错时, 这里返回 null, 渲染层换成 <PollTrendEmpty />.
@@ -987,13 +1128,15 @@ export function PollNodeComponent({
             data-kg-allow-clickthrough
         >
             <div className="text-[1.45rem] font-medium text-[#9FA0A4]">
-                Vote
+                Poll
             </div>
             <div className="mt-4 border-t border-grey-200" />
 
             <textarea
-                className="mt-4 h-[30px] w-full resize-none border-0 bg-transparent p-0 text-[2.7rem] leading-[1.3] text-grey-900 outline-none placeholder:text-grey-500"
+                ref={titleInputRef}
+                className="mt-4 w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-[2.7rem] leading-[1.3] text-grey-900 outline-none placeholder:text-grey-500"
                 placeholder="Type your question here"
+                rows={1}
                 value={draftTitle}
                 onChange={handleTitleChange}
                 onCompositionEnd={handleTitleCompositionEnd}
@@ -1034,20 +1177,24 @@ export function PollNodeComponent({
                                 <button
                                     className="flex h-[120px] w-[120px] items-center justify-center rounded-[8px] bg-white text-grey-500 transition hover:text-grey-800"
                                     type="button"
-                                    onClick={() =>
+                                    onClick={() => {
+                                        if (imageInputRef.current) {
+                                            imageInputRef.current.value = "";
+                                        }
+
                                         openFileSelection({
                                             fileInputRef: imageInputRef,
-                                        })
-                                    }
+                                        });
+                                    }}
                                 >
                                     <AddIcon className="size-6" />
                                 </button>
                             </div>
                         ) : (
-                            <div className="relative inline-flex overflow-hidden rounded-[8px]">
+                            <div className="relative inline-flex h-[120px] overflow-hidden rounded-[8px]">
                                 <img
                                     alt="Poll cover preview"
-                                    className="h-[120px] w-[260px] object-cover"
+                                    className="h-full w-[260px] object-cover"
                                     src={previewImage}
                                 />
                                 <button
@@ -1096,8 +1243,8 @@ export function PollNodeComponent({
                             }
                         />
                         <button
-                            className={`flex size-8 items-center justify-center rounded-full border-0 bg-transparent text-grey-500 transition ${options.length > 2 ? "hover:text-grey-900" : "cursor-not-allowed opacity-40"}`}
-                            disabled={options.length <= 2}
+                            className={`flex size-8 items-center justify-center rounded-full border-0 bg-transparent text-grey-500 transition ${!isOptionsStructureLocked && options.length > 2 ? "hover:text-grey-900" : "cursor-not-allowed opacity-40"}`}
+                            disabled={isOptionsStructureLocked || options.length <= 2}
                             type="button"
                             onClick={() => handleRemoveOption(index)}
                         >
@@ -1108,13 +1255,20 @@ export function PollNodeComponent({
             </div>
 
             <button
-                className="mt-4 flex w-fit items-center gap-2 border-0 bg-transparent p-0 text-[1.65rem] text-[#9FA0A4] transition hover:text-grey-900 cursor-pointer"
+                className={`mt-4 flex w-fit items-center gap-2 border-0 bg-transparent p-0 text-[1.65rem] text-[#9FA0A4] transition ${isOptionsStructureLocked ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:text-grey-900"}`}
+                disabled={isOptionsStructureLocked}
                 type="button"
                 onClick={handleAddOption}
             >
                 <AddIcon className="size-4" />
                 <span>Add option</span>
             </button>
+
+            {isOptionsStructureLocked && (
+                <div className="mt-2 text-[1.35rem] text-[#9FA0A4]">
+                    Options can no longer be added or removed after the poll is created.
+                </div>
+            )}
 
             <div className="mt-4">
                 <div className="mb-2 text-[1.45rem] font-medium text-[#9FA0A4]">
@@ -1147,11 +1301,43 @@ export function PollNodeComponent({
                 </div>
             </div>
 
+            <div className="mt-4">
+                <div className="mb-2 text-[1.45rem] font-medium text-[#9FA0A4]">
+                    Poll settings
+                </div>
+                <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.02)]">
+                    <div>
+                        <div className="text-[1.65rem] font-medium text-grey-900">
+                            Allow anonymous
+                        </div>
+                        <div className="mt-1 text-[1.4rem] text-[#9FA0A4]">
+                            Let people vote without showing their identity.
+                        </div>
+                    </div>
+                    <Toggle
+                        isChecked={allowAnonymousVote}
+                        onChange={(event) =>
+                            updateNode((node) =>
+                                node.setAllowAnonymousVote(
+                                    event.target.checked,
+                                ),
+                            )
+                        }
+                    />
+                </label>
+            </div>
+
             {!showEndDateField ? (
                 <button
                     className="mt-10 flex w-fit items-center gap-2 border-0 bg-transparent p-0 text-[1.65rem] text-[#9FA0A4] transition hover:text-grey-900 cursor-pointer"
                     type="button"
-                    onClick={() => setShowEndDateField(true)}
+                    onClick={() => {
+                        setShowEndDateField(true);
+
+                        requestAnimationFrame(() => {
+                            handleActivateEndDateInput();
+                        });
+                    }}
                 >
                     <AddIcon className="size-4" />
                     <span>Add end date</span>
@@ -1161,27 +1347,139 @@ export function PollNodeComponent({
                     <div className="mb-2 text-[1.45rem] text-[#9FA0A4]">
                         End date
                     </div>
-                    <div className="flex items-center gap-3 rounded-xl bg-white px-4 py-1 shadow-[0_1px_2px_rgba(15,23,42,0.02)]">
-                        <input
-                            ref={endDateInputRef}
-                            className="h-11 w-full border-0 bg-transparent text-[1.65rem] text-grey-900 outline-none"
-                            type="datetime-local"
-                            min={minEndDateValue}
-                            value={toDateTimeLocalValue(expiresAt)}
-                            onChange={handleExpiresAtChange}
-                            onBlur={() => setIsEndDateInputActive(false)}
-                        />
+                    <div
+                        ref={endDatePickerRef}
+                        className="relative rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.02)]"
+                    >
                         <button
-                            className="flex size-8 items-center justify-center rounded-full border-0 bg-transparent text-grey-500 transition hover:text-grey-900"
+                            className={`flex min-h-[52px] w-full items-center justify-between gap-3 rounded-xl px-4 py-3 pr-14 text-left transition ${isEndDateInputActive ? "ring-1 ring-grey-900/10" : ""}`}
                             type="button"
-                            onClick={() => {
-                                setShowEndDateField(false);
-                                setIsEndDateInputActive(false);
-                                updateNode((node) => node.setExpiresAt(""));
+                            onClick={handleActivateEndDateInput}
+                        >
+                            <span className={`text-[1.65rem] ${expiresAt ? "text-grey-900" : "text-[#9FA0A4]"}`}>
+                                {formatEditorDateTime(expiresAt)}
+                            </span>
+                            <ClockIcon className="size-4 shrink-0 text-grey-500" />
+                        </button>
+                        <button
+                            className="absolute right-3 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border-0 bg-transparent text-grey-500 transition hover:text-grey-900"
+                            type="button"
+                            onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                handleClearEndDate();
                             }}
                         >
                             <CloseIcon className="size-4 text-[#A6A6A6]" />
                         </button>
+
+                        {isEndDateInputActive && (
+                            <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 rounded-xl border border-grey-200 bg-white p-4 shadow-[0_20px_40px_rgba(15,23,42,0.14)]">
+                                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                                    <label className="flex flex-col gap-2">
+                                        <span className="text-[1.3rem] font-medium uppercase tracking-[0.08em] text-[#9FA0A4]">
+                                            Month
+                                        </span>
+                                        <select
+                                            className="h-11 rounded-lg border border-grey-200 bg-white px-3 text-[1.55rem] text-grey-900 outline-none"
+                                            value={endDatePickerValue.month}
+                                            onChange={(event) => handleEndDatePickerChange("month", event.target.value)}
+                                        >
+                                            {MONTH_OPTIONS.map((monthOption) => (
+                                                <option key={monthOption.value} value={monthOption.value}>
+                                                    {monthOption.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+
+                                    <label className="flex flex-col gap-2">
+                                        <span className="text-[1.3rem] font-medium uppercase tracking-[0.08em] text-[#9FA0A4]">
+                                            Day
+                                        </span>
+                                        <select
+                                            className="h-11 rounded-lg border border-grey-200 bg-white px-3 text-[1.55rem] text-grey-900 outline-none"
+                                            value={endDatePickerValue.day}
+                                            onChange={(event) => handleEndDatePickerChange("day", event.target.value)}
+                                        >
+                                            {dayOptions.map(dayOption => (
+                                                <option key={dayOption} value={dayOption}>
+                                                    {dayOption}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+
+                                    <label className="flex flex-col gap-2">
+                                        <span className="text-[1.3rem] font-medium uppercase tracking-[0.08em] text-[#9FA0A4]">
+                                            Year
+                                        </span>
+                                        <select
+                                            className="h-11 rounded-lg border border-grey-200 bg-white px-3 text-[1.55rem] text-grey-900 outline-none"
+                                            value={endDatePickerValue.year}
+                                            onChange={(event) => handleEndDatePickerChange("year", event.target.value)}
+                                        >
+                                            {yearOptions.map(yearOption => (
+                                                <option key={yearOption} value={yearOption}>
+                                                    {yearOption}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+
+                                    <label className="flex flex-col gap-2">
+                                        <span className="text-[1.3rem] font-medium uppercase tracking-[0.08em] text-[#9FA0A4]">
+                                            Hour
+                                        </span>
+                                        <select
+                                            className="h-11 rounded-lg border border-grey-200 bg-white px-3 text-[1.55rem] text-grey-900 outline-none"
+                                            value={endDatePickerValue.hour}
+                                            onChange={(event) => handleEndDatePickerChange("hour", event.target.value)}
+                                        >
+                                            {hourOptions.map(hourOption => (
+                                                <option key={hourOption} value={hourOption}>
+                                                    {padTimeValue(hourOption)}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+
+                                    <label className="flex flex-col gap-2">
+                                        <span className="text-[1.3rem] font-medium uppercase tracking-[0.08em] text-[#9FA0A4]">
+                                            Minute
+                                        </span>
+                                        <select
+                                            className="h-11 rounded-lg border border-grey-200 bg-white px-3 text-[1.55rem] text-grey-900 outline-none"
+                                            value={endDatePickerValue.minute}
+                                            onChange={(event) => handleEndDatePickerChange("minute", event.target.value)}
+                                        >
+                                            {minuteOptions.map(minuteOption => (
+                                                <option key={minuteOption} value={minuteOption}>
+                                                    {padTimeValue(minuteOption)}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                </div>
+
+                                <div className="mt-4 flex items-center justify-end gap-2">
+                                    <button
+                                        className="rounded-lg px-3 py-2 text-[1.45rem] font-medium text-[#9FA0A4] transition hover:bg-grey-100 hover:text-grey-900"
+                                        type="button"
+                                        onClick={handleClearEndDate}
+                                    >
+                                        Clear
+                                    </button>
+                                    <button
+                                        className="rounded-lg bg-black px-4 py-2 text-[1.45rem] font-medium text-white transition hover:bg-grey-950"
+                                        type="button"
+                                        onClick={handleApplyEndDate}
+                                    >
+                                        Apply
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
