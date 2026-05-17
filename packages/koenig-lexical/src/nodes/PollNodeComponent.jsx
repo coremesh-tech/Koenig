@@ -1067,9 +1067,8 @@ export function PollNodeComponent({
                 {/*
                   * 布局:
                   * - 移动端 (默认): flex-col, 图表在上 (order-1), 选项在下 (order-2)
-                  * - 桌面端 (sm 及以上): flex-row + items-stretch (默认),
-                  *   行高由选项的自然堆叠高度决定, 图表通过 h-full + ResizeObserver
-                  *   动态匹配同样的高度 (见 PollTrendChart 内部)
+                  * - 桌面端 (sm 及以上): flex-row, 左右按各自内容自然高度展示;
+                  *   图表列不再跟随选项列等高, 图表绘制区由 PollTrendChart 内部固定为 200px
                   */}
                 <div className="mt-7 flex flex-col gap-7 sm:flex-row sm:gap-8">
                     <div className="order-2 flex flex-col gap-5 sm:order-1 sm:flex-1 sm:min-w-0">
@@ -1084,7 +1083,7 @@ export function PollNodeComponent({
                         ))}
                     </div>
                     {trendModel && (
-                        <div className="order-1 min-h-[240px] w-full sm:order-2 sm:flex-[1.2] sm:min-h-0 sm:min-w-0">
+                        <div className="order-1 w-full sm:order-2 sm:min-w-0 sm:flex-[1.2] sm:self-start">
                             <PollTrendChart
                                 activeIndex={resolvedActiveTrendIndex}
                                 onActivateIndex={setActiveTrendIndex}

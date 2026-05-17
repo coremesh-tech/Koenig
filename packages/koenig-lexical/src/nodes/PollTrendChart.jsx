@@ -3,6 +3,9 @@ import {LineType, createChart} from "lightweight-charts";
 
 const CHART_RATE_MIN = 0;
 const CHART_RATE_MAX = 100;
+const CHART_CANVAS_HEIGHT = 200;
+const PLOT_TOP_PADDING = 24;
+const PLOT_BOTTOM_PADDING = 18;
 // 上下内边距, 让 0% / 100% 数据线离 canvas 顶/底有充足空间, stroke width 4 不会被
 // surfaceViewport 的 overflow-hidden 切掉. 底部稍大, 给 0% 段更多缓冲.
 const SCALE_MARGIN_TOP = 0.06;
@@ -494,12 +497,12 @@ export function PollTrendChart({
     }
 
     return (
-        <div className="flex h-[240px] w-full flex-col rounded-[12px] sm:h-full">
+        <div className="flex w-full flex-col rounded-[12px]">
             <div className="mb-[10px] flex flex-wrap gap-x-6 gap-y-2">
                 {preparedTrendModel.series.map((series) => (
-                    <div key={series.optionId} className="inline-flex items-center gap-2 text-[1.5rem] leading-none text-white/90">
+                    <div key={series.optionId} className="inline-flex items-baseline gap-2 text-[1.5rem] text-white/90">
                         <span
-                            className="inline-block size-[0.9rem] rounded-full"
+                            className="inline-block size-[0.9rem] rounded-full flex-shrink-0"
                             style={{backgroundColor: series.color}}
                         />
                         <span>{series.text}</span>
@@ -509,12 +512,13 @@ export function PollTrendChart({
 
             <div
                 ref={plotWrapRef}
-                className="relative min-h-0 flex-1 cursor-crosshair pt-6"
+                className="relative cursor-crosshair"
+                style={{height: `${PLOT_TOP_PADDING + CHART_CANVAS_HEIGHT + PLOT_BOTTOM_PADDING}px`}}
             >
                 <div
                     ref={surfaceViewportRef}
                     className="absolute inset-x-0 overflow-hidden"
-                    style={{top: "24px", bottom: "18px", zIndex: 1}}
+                    style={{top: `${PLOT_TOP_PADDING}px`, height: `${CHART_CANVAS_HEIGHT}px`, zIndex: 1}}
                 >
                     <div
                         ref={surfaceRef}
@@ -527,7 +531,7 @@ export function PollTrendChart({
                         className="pointer-events-none absolute z-[2] w-px bg-[rgba(255,255,255,0.22)]"
                         style={{
                             left: activePosition.x,
-                            top: "30px",
+                            top: `${PLOT_TOP_PADDING + 6}px`,
                             bottom: "30px",
                             transform: "translateX(-50%)",
                         }}
@@ -536,7 +540,7 @@ export function PollTrendChart({
 
                 <div
                     className="pointer-events-none absolute inset-x-0 z-[2]"
-                    style={{top: "24px", bottom: "18px"}}
+                    style={{top: `${PLOT_TOP_PADDING}px`, height: `${CHART_CANVAS_HEIGHT}px`}}
                 >
                     {activePosition?.values.map((value) => {
                         const flipLeft = activePosition.x > surfaceSize.width - 140;
