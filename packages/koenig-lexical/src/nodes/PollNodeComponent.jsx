@@ -242,7 +242,7 @@ function PickerSelect({children, className = "", ...props}) {
             >
                 {children}
             </select>
-            <SelectChevronIcon className="pointer-events-none absolute right-3.5 top-1/2 size-4 -translate-y-1/2 text-grey-500" />
+            <SelectChevronIcon className="pointer-events-none absolute right-3.5 top-1/2 size-4 !-translate-y-1/2 text-grey-500" />
         </div>
     );
 }
