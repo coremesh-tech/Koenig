@@ -1126,8 +1126,8 @@ export function PollNodeComponent({
                     )}
                 </div>
 
-                <div className="mt-8 flex items-center justify-between gap-4 text-[1.55rem] text-[#878888]">
-                    <div>{formatVoteCount(totalVotes)} Votes</div>
+                <div className="mt-5 flex items-center justify-between gap-4 text-[1.55rem] text-[#878888]">
+                    <div>{formatVoteCount(totalVotes)} Polls</div>
                     <div className="flex items-center gap-6">
                         {expiresAt && (
                             <div className="flex items-center gap-2">

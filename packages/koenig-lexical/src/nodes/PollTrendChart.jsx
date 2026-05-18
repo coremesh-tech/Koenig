@@ -3,7 +3,7 @@ import {LineType, createChart} from "lightweight-charts";
 
 const CHART_RATE_MIN = 0;
 const CHART_RATE_MAX = 100;
-const CHART_CANVAS_HEIGHT = 200;
+const CHART_CANVAS_HEIGHT = 120;
 const PLOT_TOP_PADDING = 12;
 const PLOT_BOTTOM_PADDING = 12;
 const SINGLE_BUCKET_BAR_SPACING = 24;
