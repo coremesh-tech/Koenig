@@ -214,6 +214,39 @@ function DotsIcon(props) {
     );
 }
 
+function SelectChevronIcon(props) {
+    return (
+        <svg
+            aria-hidden="true"
+            fill="none"
+            viewBox="0 0 16 16"
+            {...props}
+        >
+            <path
+                d="M4 6 L8 10 L12 6"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.6"
+            />
+        </svg>
+    );
+}
+
+function PickerSelect({children, className = "", ...props}) {
+    return (
+        <div className="relative">
+            <select
+                className={`h-11 w-full appearance-none rounded-lg border border-grey-200 bg-white pl-3 pr-10 text-[1.55rem] text-grey-900 outline-none ${className}`}
+                {...props}
+            >
+                {children}
+            </select>
+            <SelectChevronIcon className="pointer-events-none absolute right-3.5 top-1/2 size-4 -translate-y-1/2 text-grey-500" />
+        </div>
+    );
+}
+
 function PollPreviewOption({
     answerRevealed,
     option,
@@ -1361,7 +1394,7 @@ export function PollNodeComponent({
                             <ClockIcon className="size-4 shrink-0 text-grey-500" />
                         </button>
                         <button
-                            className="absolute right-3 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border-0 bg-transparent text-grey-500 transition hover:text-grey-900"
+                            className="absolute right-3 top-1/2 flex size-8 !-translate-y-1/2 items-center justify-center rounded-full border-0 bg-transparent text-grey-500 transition hover:text-grey-900"
                             type="button"
                             onClick={(event) => {
                                 event.preventDefault();
@@ -1379,8 +1412,7 @@ export function PollNodeComponent({
                                         <span className="text-[1.3rem] font-medium uppercase tracking-[0.08em] text-[#9FA0A4]">
                                             Month
                                         </span>
-                                        <select
-                                            className="h-11 rounded-lg border border-grey-200 bg-white px-3 text-[1.55rem] text-grey-900 outline-none"
+                                        <PickerSelect
                                             value={endDatePickerValue.month}
                                             onChange={(event) => handleEndDatePickerChange("month", event.target.value)}
                                         >
@@ -1389,15 +1421,14 @@ export function PollNodeComponent({
                                                     {monthOption.label}
                                                 </option>
                                             ))}
-                                        </select>
+                                        </PickerSelect>
                                     </label>
 
                                     <label className="flex flex-col gap-2">
                                         <span className="text-[1.3rem] font-medium uppercase tracking-[0.08em] text-[#9FA0A4]">
                                             Day
                                         </span>
-                                        <select
-                                            className="h-11 rounded-lg border border-grey-200 bg-white px-3 text-[1.55rem] text-grey-900 outline-none"
+                                        <PickerSelect
                                             value={endDatePickerValue.day}
                                             onChange={(event) => handleEndDatePickerChange("day", event.target.value)}
                                         >
@@ -1406,15 +1437,14 @@ export function PollNodeComponent({
                                                     {dayOption}
                                                 </option>
                                             ))}
-                                        </select>
+                                        </PickerSelect>
                                     </label>
 
                                     <label className="flex flex-col gap-2">
                                         <span className="text-[1.3rem] font-medium uppercase tracking-[0.08em] text-[#9FA0A4]">
                                             Year
                                         </span>
-                                        <select
-                                            className="h-11 rounded-lg border border-grey-200 bg-white px-3 text-[1.55rem] text-grey-900 outline-none"
+                                        <PickerSelect
                                             value={endDatePickerValue.year}
                                             onChange={(event) => handleEndDatePickerChange("year", event.target.value)}
                                         >
@@ -1423,15 +1453,14 @@ export function PollNodeComponent({
                                                     {yearOption}
                                                 </option>
                                             ))}
-                                        </select>
+                                        </PickerSelect>
                                     </label>
 
                                     <label className="flex flex-col gap-2">
                                         <span className="text-[1.3rem] font-medium uppercase tracking-[0.08em] text-[#9FA0A4]">
                                             Hour
                                         </span>
-                                        <select
-                                            className="h-11 rounded-lg border border-grey-200 bg-white px-3 text-[1.55rem] text-grey-900 outline-none"
+                                        <PickerSelect
                                             value={endDatePickerValue.hour}
                                             onChange={(event) => handleEndDatePickerChange("hour", event.target.value)}
                                         >
@@ -1440,15 +1469,14 @@ export function PollNodeComponent({
                                                     {padTimeValue(hourOption)}
                                                 </option>
                                             ))}
-                                        </select>
+                                        </PickerSelect>
                                     </label>
 
                                     <label className="flex flex-col gap-2">
                                         <span className="text-[1.3rem] font-medium uppercase tracking-[0.08em] text-[#9FA0A4]">
                                             Minute
                                         </span>
-                                        <select
-                                            className="h-11 rounded-lg border border-grey-200 bg-white px-3 text-[1.55rem] text-grey-900 outline-none"
+                                        <PickerSelect
                                             value={endDatePickerValue.minute}
                                             onChange={(event) => handleEndDatePickerChange("minute", event.target.value)}
                                         >
@@ -1457,7 +1485,7 @@ export function PollNodeComponent({
                                                     {padTimeValue(minuteOption)}
                                                 </option>
                                             ))}
-                                        </select>
+                                        </PickerSelect>
                                     </label>
                                 </div>
 
