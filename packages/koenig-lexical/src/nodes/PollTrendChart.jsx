@@ -4,8 +4,10 @@ import {LineType, createChart} from "lightweight-charts";
 const CHART_RATE_MIN = 0;
 const CHART_RATE_MAX = 100;
 const CHART_CANVAS_HEIGHT = 200;
-const PLOT_TOP_PADDING = 24;
-const PLOT_BOTTOM_PADDING = 18;
+const PLOT_TOP_PADDING = 12;
+const PLOT_BOTTOM_PADDING = 12;
+const SINGLE_BUCKET_BAR_SPACING = 24;
+const TIME_LABEL_SIDE_PADDING = 42;
 // 上下内边距, 让 0% / 100% 数据线离 canvas 顶/底有充足空间, stroke width 4 不会被
 // surfaceViewport 的 overflow-hidden 切掉. 底部稍大, 给 0% 段更多缓冲.
 const SCALE_MARGIN_TOP = 0.06;
@@ -414,14 +416,28 @@ export function PollTrendChart({
         });
         seriesRefs.current = [];
 
+        // 「没有趋势可画」: 单点 / 多点全平 (例如只投了一票, trends 接口给的每个 bucket
+        // 都是同一个百分比). 这两种情况下让 lib 不渲染任何线/marker, 由 HTML overlay 接管
+        // 圆点和百分比标签, 避免出现「canvas 上的线在右边, overlay 的圆点在左边」错位.
+        const hasVariation = preparedTrendModel.buckets.length >= 2
+            && preparedTrendModel.series.some((s) => {
+                if (!Array.isArray(s.rates) || s.rates.length < 2) {
+                    return false;
+                }
+                const first = Number(s.rates[0]) || 0;
+                return s.rates.some(r => Math.abs(Number(r) - first) > 1e-6);
+            });
+
         preparedTrendModel.series.forEach((series) => {
             const lineSeries = chart.addLineSeries({
                 color: series.color,
                 lineWidth: 2,
                 lineType: typeof LineType?.Curved === "number" ? LineType.Curved : 2,
+                visible: hasVariation,            // 平坦/单点时不画线, overlay 自己渲染圆点+标签
                 crosshairMarkerVisible: false,
                 lastValueVisible: false,
                 priceLineVisible: false,
+                baseLineVisible: false,           // 防御性: 关掉默认基线 (#B2B5BE)
                 autoscaleInfoProvider: () => ({
                     priceRange: {
                         minValue: CHART_RATE_MIN,
@@ -542,6 +558,25 @@ export function PollTrendChart({
                     className="pointer-events-none absolute inset-x-0 z-[2]"
                     style={{top: `${PLOT_TOP_PADDING}px`, height: `${CHART_CANVAS_HEIGHT}px`}}
                 >
+                    {activePosition?.isHovering && activePosition.timeText && (
+                        <div
+                            className="pointer-events-none absolute whitespace-nowrap text-[1.2rem] font-medium leading-[14px] text-white/90"
+                            style={{
+                                left: clamp(
+                                    Math.round(activePosition.x),
+                                    TIME_LABEL_SIDE_PADDING,
+                                    Math.max(surfaceSize.width - TIME_LABEL_SIDE_PADDING, TIME_LABEL_SIDE_PADDING),
+                                ),
+                                top: 0,
+                                textShadow: "0 0 1px #232120, 0 0 4px #232120, 0 0 6px #232120",
+                                transform: "translate(-50%, -100%)",
+                                zIndex: 2,
+                            }}
+                        >
+                            {activePosition.timeText}
+                        </div>
+                    )}
+
                     {activePosition?.values.map((value) => {
                         const flipLeft = activePosition.x > surfaceSize.width - 140;
                         const labelX = clamp(
@@ -588,7 +623,7 @@ export function PollTrendChart({
                                             zIndex: 2,
                                         }}
                                     >
-                                        {`${activePosition.timeText} ${formatRate(value.rate)}`}
+                                        {formatRate(value.rate)}
                                     </div>
                                 )}
                             </React.Fragment>

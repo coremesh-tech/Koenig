@@ -114,7 +114,7 @@ const defaultCardConfig = {
     }
 };
 
-const DEBUG_POLL_ID = 'poll_3d5f7182fea14f09a341db67';
+const DEBUG_POLL_ID = 'poll_97a039a95da948f193f579c7';
 
 function buildDebugPollCard() {
     return {
