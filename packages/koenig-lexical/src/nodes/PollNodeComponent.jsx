@@ -139,11 +139,15 @@ function formatDisplayDate(value) {
         return value;
     }
 
-    return new Intl.DateTimeFormat("en-US", {
+    const meridiem = date.getHours() >= 12 ? "PM" : "AM";
+    const dateLabel = new Intl.DateTimeFormat("en-US", {
         day: "numeric",
         month: "short",
         year: "numeric",
     }).format(date);
+    const [monthDay, year] = dateLabel.split(", ");
+
+    return `${monthDay}, ${year}, ${padTimeValue(date.getHours())}:${padTimeValue(date.getMinutes())} ${meridiem}`;
 }
 
 function formatEditorDateTime(value) {
@@ -1133,6 +1137,9 @@ export function PollNodeComponent({
                             <div className="flex items-center gap-2">
                                 <ClockIcon className="size-4" />
                                 <span>{formatDisplayDate(expiresAt)}</span>
+                                {answerRevealed && (
+                                    <span className="ml-2 text-[#878888]">Ended</span>
+                                )}
                             </div>
                         )}
                     </div>
