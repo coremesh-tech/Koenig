@@ -110,6 +110,67 @@ const defaultCardConfig = {
     }
 };
 
+const DEBUG_POLL_ID = 'poll_f1cb5ddd1c6b4f53b343b3c4';
+
+function buildDebugPollCard() {
+    return {
+        type: 'poll',
+        version: 1,
+        pollId: DEBUG_POLL_ID,
+        title: 'Loading poll…',
+        description: '',
+        imageSrc: '',
+        expiresAt: '',
+        pollType: 'single',
+        status: 'published',
+        answerRevealed: false,
+        correctOptionIds: [],
+        selectedOptionIds: [],
+        totalVotes: 0,
+        options: [
+            {
+                id: 'debug_opt_1',
+                text: 'Option 1',
+                voteCount: 0,
+                voteRate: 0
+            },
+            {
+                id: 'debug_opt_2',
+                text: 'Option 2',
+                voteCount: 0,
+                voteRate: 0
+            }
+        ]
+    };
+}
+
+function withDebugPollContent(editorState, {editorType}) {
+    if (!editorState || editorType === 'basic' || editorType === 'minimal' || editorType === 'email') {
+        return editorState;
+    }
+
+    const root = editorState.root;
+    if (!root || !Array.isArray(root.children)) {
+        return editorState;
+    }
+
+    const hasDebugPoll = root.children.some(child => child?.type === 'poll' && child?.pollId === DEBUG_POLL_ID);
+    if (hasDebugPoll) {
+        return editorState;
+    }
+
+    return {
+        ...editorState,
+        root: {
+            ...root,
+            children: [
+                buildDebugPollCard(),
+                ...root.children
+            ]
+        }
+    };
+}
+
 function getDefaultContent({editorType}) {
     if (editorType === 'basic') {
         return basicContent;
@@ -179,7 +240,7 @@ function DemoComposer({editorType, isMultiplayer, setWordCount, setTKCount}) {
     const contentParam = searchParams.get('content');
 
     const defaultContent = React.useMemo(() => {
-        return JSON.stringify(getDefaultContent({editorType}));
+        return JSON.stringify(withDebugPollContent(getDefaultContent({editorType}), {editorType}));
     }, [editorType]);
 
     const initialContent = React.useMemo(() => {

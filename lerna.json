@@ -5,11 +5,11 @@
     "command": {
         "version": {
             "exact": true,
-            "allowBranch": ["main", "develop"],
+            "allowBranch": ["main", "develop-poll"],
             "message": "Published new versions"
         },
         "publish": {
-            "allowBranch": ["main", "develop"]
+            "allowBranch": ["main", "develop-poll"]
         }
     },
     "local": {

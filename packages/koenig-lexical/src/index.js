@@ -36,6 +36,7 @@ import KoenigSnippetPlugin from './plugins/KoenigSnippetPlugin';
 import MarkdownPlugin from './plugins/MarkdownPlugin';
 import MarkdownShortcutPlugin from './plugins/MarkdownShortcutPlugin';
 import PlusCardMenuPlugin from './plugins/PlusCardMenuPlugin';
+import PollPlugin from './plugins/PollPlugin';
 import ProductPlugin from './plugins/ProductPlugin';
 import ReplacementStringsPlugin from './plugins/ReplacementStringsPlugin';
 import RestrictContentPlugin from './plugins/RestrictContentPlugin';
@@ -109,6 +110,7 @@ export {
     MarkdownPlugin,
     MarkdownShortcutPlugin,
     PlusCardMenuPlugin,
+    PollPlugin,
     ProductPlugin,
     ReplacementStringsPlugin,
     RestrictContentPlugin,

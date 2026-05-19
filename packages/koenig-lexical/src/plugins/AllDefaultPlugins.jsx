@@ -21,6 +21,7 @@ import {HeaderPlugin} from '../plugins/HeaderPlugin';
 import {KoenigSnippetPlugin} from '../plugins/KoenigSnippetPlugin';
 import {ListPlugin} from '@lexical/react/LexicalListPlugin';
 import {PaywallPlugin} from '../plugins/PaywallPlugin';
+import {PollPlugin} from '../plugins/PollPlugin';
 import {ProductPlugin} from '../plugins/ProductPlugin';
 import {SignupPlugin} from '../plugins/SignupPlugin';
 import {TogglePlugin} from '../plugins/TogglePlugin';
@@ -57,6 +58,7 @@ export const AllDefaultPlugins = () => {
             <HeaderPlugin />
             <BookmarkPlugin />
             <PaywallPlugin />
+            <PollPlugin />
             <ProductPlugin />
             <EmailCtaPlugin />
             <EmailPlugin />
