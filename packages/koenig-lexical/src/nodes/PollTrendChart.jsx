@@ -3,11 +3,11 @@ import {LineType, createChart} from "lightweight-charts";
 
 const CHART_RATE_MIN = 0;
 const CHART_RATE_MAX = 100;
-const CHART_CANVAS_HEIGHT = 120;
 const PLOT_TOP_PADDING = 12;
 const PLOT_BOTTOM_PADDING = 12;
-const SINGLE_BUCKET_BAR_SPACING = 24;
+const SINGLE_BUCKET_LEFT_INSET = 12;
 const TIME_LABEL_SIDE_PADDING = 42;
+const LEGEND_TWO_COLUMN_TEXT_THRESHOLD = 16;
 // 上下内边距, 让 0% / 100% 数据线离 canvas 顶/底有充足空间, stroke width 4 不会被
 // surfaceViewport 的 overflow-hidden 切掉. 底部稍大, 给 0% 段更多缓冲.
 const SCALE_MARGIN_TOP = 0.06;
@@ -102,6 +102,10 @@ function prepareTrendModelForChart(trendModel) {
         return null;
     }
 
+    const windowEndTimestamp = trendModel.windowEndKey
+        ? toChartTimestamp(trendModel.windowEndKey)
+        : null;
+
     return {
         buckets,
         series,
@@ -110,6 +114,7 @@ function prepareTrendModelForChart(trendModel) {
             0,
             Math.max(buckets.length - 1, 0),
         ),
+        windowEndChartTime: windowEndTimestamp ? windowEndTimestamp.seconds : null,
     };
 }
 
@@ -140,10 +145,6 @@ function getBucketCoordinates(chart, buckets, width) {
 
         if (typeof coordinate === "number" && Number.isFinite(coordinate)) {
             return clamp(coordinate, 0, width);
-        }
-
-        if (count <= 1) {
-            return width / 2;
         }
 
         return (width * index) / (count - 1);
@@ -191,6 +192,11 @@ export function PollTrendChart({
     const preparedTrendModel = React.useMemo(() => {
         return prepareTrendModelForChart(trendModel);
     }, [trendModel]);
+    const shouldUseTwoColumnLegend = React.useMemo(() => {
+        return preparedTrendModel?.series?.some((series) => {
+            return (series.text || "").trim().length > LEGEND_TWO_COLUMN_TEXT_THRESHOLD;
+        }) ?? false;
+    }, [preparedTrendModel]);
 
     const updateOverlay = React.useCallback(() => {
         const chart = chartRef.current;
@@ -416,24 +422,11 @@ export function PollTrendChart({
         });
         seriesRefs.current = [];
 
-        // 「没有趋势可画」: 单点 / 多点全平 (例如只投了一票, trends 接口给的每个 bucket
-        // 都是同一个百分比). 这两种情况下让 lib 不渲染任何线/marker, 由 HTML overlay 接管
-        // 圆点和百分比标签, 避免出现「canvas 上的线在右边, overlay 的圆点在左边」错位.
-        const hasVariation = preparedTrendModel.buckets.length >= 2
-            && preparedTrendModel.series.some((s) => {
-                if (!Array.isArray(s.rates) || s.rates.length < 2) {
-                    return false;
-                }
-                const first = Number(s.rates[0]) || 0;
-                return s.rates.some(r => Math.abs(Number(r) - first) > 1e-6);
-            });
-
         preparedTrendModel.series.forEach((series) => {
             const lineSeries = chart.addLineSeries({
                 color: series.color,
                 lineWidth: 2,
                 lineType: typeof LineType?.Curved === "number" ? LineType.Curved : 2,
-                visible: hasVariation,            // 平坦/单点时不画线, overlay 自己渲染圆点+标签
                 crosshairMarkerVisible: false,
                 lastValueVisible: false,
                 priceLineVisible: false,
@@ -446,12 +439,25 @@ export function PollTrendChart({
                 }),
             });
 
-            lineSeries.setData(preparedTrendModel.buckets.map((bucket, bucketIndex) => {
+            const seriesData = preparedTrendModel.buckets.map((bucket, bucketIndex) => {
                 return {
                     time: bucket.chartTime,
                     value: preparedTrendModel.series.find(item => item.optionId === series.optionId).rates[bucketIndex],
                 };
-            }));
+            });
+
+            if (
+                seriesData.length === 1
+                && preparedTrendModel.windowEndChartTime
+                && preparedTrendModel.windowEndChartTime > seriesData[0].time
+            ) {
+                seriesData.push({
+                    time: preparedTrendModel.windowEndChartTime,
+                    value: seriesData[0].value,
+                });
+            }
+
+            lineSeries.setData(seriesData);
 
             seriesRefs.current.push({
                 api: lineSeries,
@@ -513,28 +519,35 @@ export function PollTrendChart({
     }
 
     return (
-        <div className="flex w-full flex-col rounded-[12px]">
-            <div className="mb-[10px] flex flex-wrap gap-x-6 gap-y-2">
+        <div className="flex w-full flex-col rounded-[12px] sm:h-full">
+            <div className={shouldUseTwoColumnLegend
+                ? "mb-[10px] grid grid-cols-2 gap-x-4 gap-y-2"
+                : "mb-[10px] flex flex-wrap gap-x-6 gap-y-2"}>
                 {preparedTrendModel.series.map((series) => (
-                    <div key={series.optionId} className="inline-flex items-baseline gap-2 text-[1.5rem] text-white/90">
+                    <div
+                        key={series.optionId}
+                        className={shouldUseTwoColumnLegend
+                            ? "flex min-w-0 items-center gap-2 text-[1.45rem] leading-none text-white/90"
+                            : "inline-flex items-center gap-2 text-[1.45rem] leading-none text-white/90"}
+                        title={series.text}
+                    >
                         <span
-                            className="inline-block size-[0.9rem] rounded-full flex-shrink-0"
+                            className="inline-block size-[0.9rem] shrink-0 rounded-full"
                             style={{backgroundColor: series.color}}
                         />
-                        <span>{series.text}</span>
+                        <span className={shouldUseTwoColumnLegend ? "min-w-0 truncate" : ""}>{series.text}</span>
                     </div>
                 ))}
             </div>
 
             <div
                 ref={plotWrapRef}
-                className="relative cursor-crosshair"
-                style={{height: `${PLOT_TOP_PADDING + CHART_CANVAS_HEIGHT + PLOT_BOTTOM_PADDING}px`}}
+                className="relative h-[144px] cursor-crosshair sm:h-auto sm:min-h-0 sm:flex-1"
             >
                 <div
                     ref={surfaceViewportRef}
                     className="absolute inset-x-0 overflow-hidden"
-                    style={{top: `${PLOT_TOP_PADDING}px`, height: `${CHART_CANVAS_HEIGHT}px`, zIndex: 1}}
+                    style={{top: `${PLOT_TOP_PADDING}px`, bottom: `${PLOT_BOTTOM_PADDING}px`, zIndex: 1}}
                 >
                     <div
                         ref={surfaceRef}
@@ -556,7 +569,7 @@ export function PollTrendChart({
 
                 <div
                     className="pointer-events-none absolute inset-x-0 z-[2]"
-                    style={{top: `${PLOT_TOP_PADDING}px`, height: `${CHART_CANVAS_HEIGHT}px`}}
+                    style={{top: `${PLOT_TOP_PADDING}px`, bottom: `${PLOT_BOTTOM_PADDING}px`}}
                 >
                     {activePosition?.isHovering && activePosition.timeText && (
                         <div

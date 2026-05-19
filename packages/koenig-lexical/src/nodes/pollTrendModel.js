@@ -202,10 +202,17 @@ export function mapTrendsResponseToModel(response, options, {targetBuckets = DEF
         };
     });
 
+    const responseToMs = response?.to ? new Date(response.to).getTime() : NaN;
+    const lastBucketMs = buckets.length > 0 ? new Date(buckets[buckets.length - 1].key).getTime() : NaN;
+    const windowEndKey = Number.isFinite(responseToMs) && Number.isFinite(lastBucketMs) && responseToMs > lastBucketMs
+        ? new Date(responseToMs).toISOString()
+        : null;
+
     return {
         buckets,
         series,
         // 活跃点默认停在最近一个 bucket
         activeIndex: buckets.length - 1,
+        windowEndKey,
     };
 }
