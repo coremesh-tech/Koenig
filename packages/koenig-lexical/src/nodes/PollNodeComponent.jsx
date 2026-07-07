@@ -17,8 +17,10 @@ import {
     getAdminPoll,
     getAdminPollTrends,
     getAdminPollVotes,
+    pauseAdminPollVoting,
     publishAdminPoll,
     publishAdminPollResults,
+    resumeAdminPollVoting,
     saveAdminPoll,
     unpublishAdminPoll,
 } from "../utils/pollsApi.js";
@@ -218,6 +220,23 @@ function DotsIcon(props) {
     );
 }
 
+function PauseIcon(props) {
+    return (
+        <svg fill="currentColor" viewBox="0 0 16 16" {...props}>
+            <rect x="4" y="3" width="2.6" height="10" rx="0.6" />
+            <rect x="9.4" y="3" width="2.6" height="10" rx="0.6" />
+        </svg>
+    );
+}
+
+function ResumeIcon(props) {
+    return (
+        <svg fill="currentColor" viewBox="0 0 16 16" {...props}>
+            <path d="M5 3.2 L12.4 8 L5 12.8 Z" />
+        </svg>
+    );
+}
+
 function SelectChevronIcon(props) {
     return (
         <svg
@@ -334,6 +353,7 @@ export function PollNodeComponent({
     status,
     title,
     totalVotes,
+    votingPaused = false,
 }) {
     const [editor] = useLexicalComposerContext();
     const { isEditing, isSelected } = React.useContext(CardContext);
@@ -345,6 +365,8 @@ export function PollNodeComponent({
     const [isSaving, setIsSaving] = React.useState(false);
     const [imagePreview, setImagePreview] = React.useState("");
     const [activeTrendIndex, setActiveTrendIndex] = React.useState(null);
+    // Pause / Resume voting 切换中的 loading, 避免快速多次点击
+    const [isTogglingPause, setIsTogglingPause] = React.useState(false);
     // Publish Results 弹窗
     const [publishResultsOpen, setPublishResultsOpen] = React.useState(false);
     const [publishResultsError, setPublishResultsError] = React.useState("");
@@ -745,6 +767,44 @@ export function PollNodeComponent({
         });
     };
 
+    const handlePauseVoting = async (event) => {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        setMenuOpen(false);
+        if (!pollId || isTogglingPause || votingPaused || answerRevealed) {
+            return;
+        }
+        setApiError("");
+        setIsTogglingPause(true);
+        try {
+            await pauseAdminPollVoting(pollId, cardConfig);
+            updateNode((node) => node.setVotingPaused(true));
+        } catch (error) {
+            setApiError(error.message || "Failed to pause poll");
+        } finally {
+            setIsTogglingPause(false);
+        }
+    };
+
+    const handleResumeVoting = async (event) => {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        setMenuOpen(false);
+        if (!pollId || isTogglingPause || !votingPaused || answerRevealed) {
+            return;
+        }
+        setApiError("");
+        setIsTogglingPause(true);
+        try {
+            await resumeAdminPollVoting(pollId, cardConfig);
+            updateNode((node) => node.setVotingPaused(false));
+        } catch (error) {
+            setApiError(error.message || "Failed to resume poll");
+        } finally {
+            setIsTogglingPause(false);
+        }
+    };
+
     const handlePublishResult = (event) => {
         event?.preventDefault?.();
         event?.stopPropagation?.();
@@ -951,9 +1011,14 @@ export function PollNodeComponent({
     const isPublished = status === "published";
     const showPreview = isCreated && isPublished && !isEditing;
     const createButtonLabel = pollId ? "Update poll" : "Create poll";
-    // 没设结束时间 → 直接可发布; 设了结束时间 → 必须等过期才能发布
-    // 已经公布过则隐藏入口, 避免重复操作
-    const canPublishResults = (!expiresAt || isExpired(expiresAt)) && !answerRevealed;
+    // 便捷派生: 是否已过期 / 是否可编辑其它字段
+    const pollExpired = Boolean(expiresAt) && isExpired(expiresAt);
+    // 已 reveal 或正在暂停投票 -> 其它字段不可再编辑 (Edit / Delete / Publish Results 按钮置灰)
+    const canEditFields = !answerRevealed && !votingPaused;
+    // 没设结束时间 → 直接可发布; 设了结束时间 → 必须等过期才能发布. 已 reveal 或暂停中不允许.
+    const canPublishResults = (!expiresAt || pollExpired) && !answerRevealed && !votingPaused;
+    // 只有已发布 & 未 reveal 才允许在 pause / resume 之间切换
+    const canTogglePause = status === "published" && !answerRevealed;
     const yearOptions = React.useMemo(() => getYearOptions(), []);
     const dayOptions = React.useMemo(() => {
         const daysInMonth = getDaysInMonth(
@@ -1062,33 +1127,63 @@ export function PollNodeComponent({
 
                         {menuOpen && (
                             <div className="absolute right-0 top-14 w-[200px] rounded-xl bg-white p-2 text-grey-950 shadow-[0_18px_40px_rgba(0,0,0,0.24)] z-[99]">
-                                {/* 公布答案后 poll 不可再修改, 隐藏 Edit 入口 */}
+                                {/* Edit / Delete / Publish Results:
+                                    暂停中一律 disabled + 置灰 (但不隐藏, 让作者能明确看到有这些操作但当前不可用).
+                                    已 reveal 时 Edit 依然隐藏 (发布后 poll 语义上不再可改). */}
                                 {!answerRevealed && (
                                     <button
-                                        className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[1.55rem] font-medium transition hover:bg-grey-100 cursor-pointer"
+                                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[1.55rem] font-medium transition ${canEditFields ? "hover:bg-grey-100 cursor-pointer" : "opacity-40 cursor-not-allowed"}`}
+                                        disabled={!canEditFields}
                                         type="button"
-                                        onClick={handleEditCard}
+                                        onClick={canEditFields ? handleEditCard : undefined}
                                     >
                                         <EditIcon className="size-4" />
                                         <span>Edit</span>
                                     </button>
                                 )}
                                 <button
-                                    className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[1.55rem] font-medium transition hover:bg-grey-100 cursor-pointer"
+                                    className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[1.55rem] font-medium transition ${canEditFields ? "hover:bg-grey-100 cursor-pointer" : "opacity-40 cursor-not-allowed"}`}
+                                    disabled={!canEditFields}
                                     type="button"
-                                    onClick={handleDeleteCard}
+                                    onClick={canEditFields ? handleDeleteCard : undefined}
                                 >
                                     <DeleteIcon className="size-4" />
                                     <span>Delete</span>
                                 </button>
-                                {canPublishResults && (
+                                {/* Publish Results: 只在满足前置条件时才显示; 暂停中也置灰 (由 canPublishResults 内部包含 !votingPaused) */}
+                                {(!expiresAt || pollExpired) && !answerRevealed && (
                                     <button
-                                        className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[1.55rem] font-medium transition hover:bg-grey-100 cursor-pointer"
+                                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[1.55rem] font-medium transition ${canPublishResults ? "hover:bg-grey-100 cursor-pointer" : "opacity-40 cursor-not-allowed"}`}
+                                        disabled={!canPublishResults}
                                         type="button"
-                                        onClick={handlePublishResult}
+                                        onClick={canPublishResults ? handlePublishResult : undefined}
                                     >
                                         <ErifiedBadgeLineIcon className="size-4" />
                                         <span>Publish Results</span>
+                                    </button>
+                                )}
+                                {/* Pause / Resume 是互斥的一对: 已发布 + 未 reveal 才展示;
+                                    暂停中显示 "Resume poll", 正常状态显示 "Pause poll". */}
+                                {canTogglePause && !votingPaused && (
+                                    <button
+                                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[1.55rem] font-medium transition ${isTogglingPause ? "opacity-40 cursor-not-allowed" : "hover:bg-grey-100 cursor-pointer"}`}
+                                        disabled={isTogglingPause}
+                                        type="button"
+                                        onClick={handlePauseVoting}
+                                    >
+                                        <PauseIcon className="size-4" />
+                                        <span>Pause poll</span>
+                                    </button>
+                                )}
+                                {canTogglePause && votingPaused && (
+                                    <button
+                                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[1.55rem] font-medium transition ${isTogglingPause ? "opacity-40 cursor-not-allowed" : "hover:bg-grey-100 cursor-pointer"}`}
+                                        disabled={isTogglingPause}
+                                        type="button"
+                                        onClick={handleResumeVoting}
+                                    >
+                                        <ResumeIcon className="size-4" />
+                                        <span>Resume poll</span>
                                     </button>
                                 )}
                             </div>
@@ -1133,15 +1228,24 @@ export function PollNodeComponent({
                 <div className="mt-5 flex items-center justify-between gap-4 text-[1.55rem] text-[#878888]">
                     <div>{formatVoteCount(totalVotes)} Polls</div>
                     <div className="flex items-center gap-6">
-                        {expiresAt && (
+                        {/*
+                            右下角展示优先级 (从高到低):
+                            1. 暂停中 -> 显示 TBD
+                            2. 已过期 (或已 reveal) -> 只显示 "Ended", 不再展示日期
+                            3. 未过期 -> 正常显示 结束日期
+                        */}
+                        {votingPaused ? (
+                            <span className="rounded-md bg-white/8 px-2 py-1 text-[1.2rem] font-medium leading-none text-white/70">
+                                TBD
+                            </span>
+                        ) : (pollExpired || answerRevealed) ? (
+                            <span className="text-[#878888]">Ended</span>
+                        ) : expiresAt ? (
                             <div className="flex items-center gap-2">
                                 <ClockIcon className="size-4" />
                                 <span>{formatDisplayDate(expiresAt)}</span>
-                                {answerRevealed && (
-                                    <span className="ml-2 text-[#878888]">Ended</span>
-                                )}
                             </div>
-                        )}
+                        ) : null}
                     </div>
                 </div>
 

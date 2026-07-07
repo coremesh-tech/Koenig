@@ -53,6 +53,7 @@ export class PollNode extends KoenigDecoratorNode {
     __pollType;
     __status;
     __answerRevealed;
+    __votingPaused;
     __correctOptionIds;
     __selectedOptionIds;
     __options;
@@ -98,6 +99,7 @@ export class PollNode extends KoenigDecoratorNode {
         }
         this.__status = dataset.status || 'draft';
         this.__answerRevealed = Boolean(dataset.answerRevealed ?? dataset.answer_revealed ?? false);
+        this.__votingPaused = Boolean(dataset.votingPaused ?? dataset.voting_paused ?? false);
         this.__correctOptionIds = cloneStringArray(dataset.correctOptionIds || dataset.correct_option_ids || []);
         this.__selectedOptionIds = cloneStringArray(dataset.selectedOptionIds || dataset.selected_option_ids || []);
         this.__options = sanitizeOptions(dataset.options);
@@ -179,6 +181,10 @@ export class PollNode extends KoenigDecoratorNode {
         return this.getLatest().__answerRevealed;
     }
 
+    get votingPaused() {
+        return Boolean(this.getLatest().__votingPaused);
+    }
+
     get correctOptionIds() {
         return cloneStringArray(this.getLatest().__correctOptionIds);
     }
@@ -243,6 +249,10 @@ export class PollNode extends KoenigDecoratorNode {
         this.getWritable().__answerRevealed = Boolean(answerRevealed);
     }
 
+    setVotingPaused(votingPaused = false) {
+        this.getWritable().__votingPaused = Boolean(votingPaused);
+    }
+
     setCorrectOptionIds(optionIds = []) {
         this.getWritable().__correctOptionIds = cloneStringArray(optionIds);
     }
@@ -267,6 +277,7 @@ export class PollNode extends KoenigDecoratorNode {
         pollType,
         status,
         answerRevealed,
+        votingPaused,
         correctOptionIds,
         selectedOptionIds,
         options,
@@ -284,6 +295,7 @@ export class PollNode extends KoenigDecoratorNode {
         writable.__pollType = pollType ?? writable.__pollType;
         writable.__status = status ?? writable.__status;
         writable.__answerRevealed = Boolean(answerRevealed ?? writable.__answerRevealed);
+        writable.__votingPaused = Boolean(votingPaused ?? writable.__votingPaused);
         writable.__correctOptionIds = cloneStringArray(correctOptionIds ?? writable.__correctOptionIds);
         writable.__selectedOptionIds = cloneStringArray(selectedOptionIds ?? writable.__selectedOptionIds);
         writable.__options = sanitizeOptions(options ?? writable.__options);
@@ -303,6 +315,7 @@ export class PollNode extends KoenigDecoratorNode {
             pollType: this.pollType,
             status: this.status,
             answerRevealed: this.answerRevealed,
+            votingPaused: this.votingPaused,
             correctOptionIds: this.correctOptionIds,
             selectedOptionIds: this.selectedOptionIds,
             options: this.options,
@@ -342,6 +355,7 @@ export class PollNode extends KoenigDecoratorNode {
                     status={this.status}
                     title={this.title}
                     totalVotes={this.totalVotes}
+                    votingPaused={this.votingPaused}
                 />
             </KoenigCardWrapper>
         );

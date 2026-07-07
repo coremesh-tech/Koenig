@@ -150,6 +150,30 @@ export async function unpublishAdminPoll(pollId, cardConfig = {}) {
     });
 }
 
+export async function pauseAdminPollVoting(pollId, cardConfig = {}) {
+    const config = resolvePollsApiConfig(cardConfig);
+    if (typeof config.pausePollVoting === 'function') {
+        return config.pausePollVoting(pollId);
+    }
+
+    return request(`/admin/polls/${pollId}/pause`, {
+        method: 'POST',
+        cardConfig
+    });
+}
+
+export async function resumeAdminPollVoting(pollId, cardConfig = {}) {
+    const config = resolvePollsApiConfig(cardConfig);
+    if (typeof config.resumePollVoting === 'function') {
+        return config.resumePollVoting(pollId);
+    }
+
+    return request(`/admin/polls/${pollId}/resume`, {
+        method: 'POST',
+        cardConfig
+    });
+}
+
 export async function deleteAdminPoll(pollId, cardConfig = {}) {
     const config = resolvePollsApiConfig(cardConfig);
     if (typeof config.deletePoll === 'function') {
