@@ -1217,9 +1217,13 @@ export function PollNodeComponent({
             return;
         }
 
-        const isFirstSync = previewSyncPollIdRef.current !== pollId;
+        if (previewSyncPollIdRef.current === pollId) {
+            return;
+        }
 
-        const refresh = () => syncPollData(pollId)
+        previewSyncPollIdRef.current = pollId;
+        setTrendsResponse(null);
+        syncPollData(pollId)
             .then(({poll}) => {
                 const lifecycleWindow = buildTrendsQueryWindow({
                     expiresAt: poll?.expires_at,
@@ -1234,20 +1238,8 @@ export function PollNodeComponent({
                     });
             })
             .catch(() => {
-                if (isFirstSync) {
-                    setTrendsResponse(null);
-                }
+                setTrendsResponse(null);
             });
-
-        if (isFirstSync) {
-            previewSyncPollIdRef.current = pollId;
-            setTrendsResponse(null);
-            refresh();
-        }
-
-        // 票数/走势随时间变化(如自定义票数按时间轴逐步生效), 预览态周期刷新
-        const timer = setInterval(refresh, 10_000);
-        return () => clearInterval(timer);
     }, [cardConfig, pollId, showPreview, syncPollData]);
 
     if (showPreview) {
