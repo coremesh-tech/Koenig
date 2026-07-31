@@ -74,6 +74,17 @@ export async function saveAdminPoll(payload, cardConfig = {}) {
     });
 }
 
+// 当前登录 staff 的 poll 能力位; 目前只有 can_manage_seed_votes
+// (是否允许配置自定义票数, 仅 admin/owner). 失败时按无权限处理.
+export async function getAdminPollPermissions(cardConfig = {}) {
+    const config = resolvePollsApiConfig(cardConfig);
+    if (typeof config.getPollPermissions === 'function') {
+        return config.getPollPermissions();
+    }
+
+    return request('/admin/polls/permissions', {cardConfig});
+}
+
 export async function getAdminPoll(pollId, cardConfig = {}) {
     const config = resolvePollsApiConfig(cardConfig);
     if (typeof config.getPoll === 'function') {

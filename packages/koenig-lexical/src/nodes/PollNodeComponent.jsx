@@ -15,6 +15,7 @@ import {
 import {
     deleteAdminPoll,
     getAdminPoll,
+    getAdminPollPermissions,
     getAdminPollTrends,
     getAdminPollVotes,
     pauseAdminPollVoting,
@@ -378,6 +379,17 @@ export function PollNodeComponent({
     const [draftOptions, setDraftOptions] = React.useState(() =>
         options.map((option) => option.text),
     );
+    // 自定义票数草稿 (与 draftOptions 平行的 string[]; "" = 未设置)
+    const [draftCustomVotes, setDraftCustomVotes] = React.useState(() =>
+        options.map((option) =>
+            option.customVoteCount === null || option.customVoteCount === undefined
+                ? ""
+                : String(option.customVoteCount),
+        ),
+    );
+    // 是否允许配置自定义票数 (仅 admin/owner); null = 权限未知, 先不渲染输入框
+    const [canManageSeedVotes, setCanManageSeedVotes] = React.useState(null);
+    const seedPermissionFetchedRef = React.useRef(false);
     const [isEndDateInputActive, setIsEndDateInputActive] =
         React.useState(false);
     const [endDatePickerValue, setEndDatePickerValue] = React.useState(() =>
@@ -430,7 +442,35 @@ export function PollNodeComponent({
 
     React.useEffect(() => {
         setDraftOptions(options.map((option) => option.text));
+        setDraftCustomVotes(
+            options.map((option) =>
+                option.customVoteCount === null ||
+                option.customVoteCount === undefined
+                    ? ""
+                    : String(option.customVoteCount),
+            ),
+        );
     }, [options]);
+
+    // 编辑态首次渲染时查询一次权限, 决定是否显示自定义票数配置
+    React.useEffect(() => {
+        if (isEditing === false && Boolean(pollId) && status === "published") {
+            return;
+        }
+
+        if (seedPermissionFetchedRef.current) {
+            return;
+        }
+
+        seedPermissionFetchedRef.current = true;
+        getAdminPollPermissions(cardConfig)
+            .then((response) => {
+                setCanManageSeedVotes(Boolean(response?.can_manage_seed_votes));
+            })
+            .catch(() => {
+                setCanManageSeedVotes(false);
+            });
+    }, [cardConfig, isEditing, pollId, status]);
 
     React.useEffect(() => {
         if (!isSelected) {
@@ -532,6 +572,11 @@ export function PollNodeComponent({
                             option.vote_rate ??
                             0,
                     ),
+                    // 服务端返回的自定义票数 (仅 admin 可见); 有值 = 已设置且锁定
+                    customVoteCount:
+                        option.custom_vote_count ??
+                        option.customVoteCount ??
+                        null,
                 };
             });
 
@@ -673,6 +718,42 @@ export function PollNodeComponent({
             return nextOptions;
         });
         commitOptionText(index, nextValue);
+    };
+
+    // 自定义票数: 已设置过 (服务端已有值) 的选项锁定, 不可二次编辑
+    const isCustomVotesLocked = React.useCallback(
+        (option) =>
+            Boolean(pollId) &&
+            option.customVoteCount !== null &&
+            option.customVoteCount !== undefined,
+        [pollId],
+    );
+
+    const handleCustomVotesChange = (index, event) => {
+        const rawValue = event.target.value;
+        // 只允许空串或非负整数
+        if (rawValue !== "" && !/^\d+$/.test(rawValue)) {
+            return;
+        }
+
+        setDraftCustomVotes((currentValues) => {
+            const nextValues = [...currentValues];
+            nextValues[index] = rawValue;
+            return nextValues;
+        });
+
+        const nextOptions = options.map((option, optionIndex) => {
+            if (optionIndex !== index) {
+                return option;
+            }
+
+            return {
+                ...option,
+                customVoteCount: rawValue === "" ? null : Number(rawValue),
+            };
+        });
+
+        updateNode((node) => node.setOptions(nextOptions));
     };
 
     const handleAddOption = () => {
@@ -896,11 +977,24 @@ export function PollNodeComponent({
     const handleSavePoll = async () => {
         const trimmedTitle = draftTitle.trim();
         const preparedOptions = options
-            .map((option, index) => ({
-                id: option.id || createOptionId(),
-                text: (draftOptions[index] ?? option.text ?? "").trim(),
-                sort_order: index,
-            }))
+            .map((option, index) => {
+                const prepared = {
+                    id: option.id || createOptionId(),
+                    text: (draftOptions[index] ?? option.text ?? "").trim(),
+                    sort_order: index,
+                };
+
+                // 自定义票数: 仅管理员、仅"本次新设置"的值才随 payload 提交;
+                // 已锁定的选项不回传, 由服务端保留原值 (服务端也会强制拒绝修改).
+                if (canManageSeedVotes && !isCustomVotesLocked(option)) {
+                    const draftValue = draftCustomVotes[index] ?? "";
+                    if (draftValue !== "") {
+                        prepared.custom_vote_count = Number(draftValue);
+                    }
+                }
+
+                return prepared;
+            })
             .filter((option) => option.text);
 
         if (!trimmedTitle) {
@@ -976,6 +1070,11 @@ export function PollNodeComponent({
                         sortOrder: index,
                         voteCount: 0,
                         voteRate: 0,
+                        // 乐观保留自定义票数, 保存瞬间锁定状态不闪跳; 随后由 syncPollData 以服务端为准覆盖
+                        customVoteCount:
+                            option.custom_vote_count ??
+                            options.find((item) => item.id === option.id)?.customVoteCount ??
+                            null,
                     })),
                 });
             });
@@ -1385,6 +1484,24 @@ export function PollNodeComponent({
                                 handleOptionCompositionEnd(index, event)
                             }
                         />
+                        {canManageSeedVotes === true && (
+                            <input
+                                className={`h-11 w-[110px] shrink-0 rounded-lg border border-grey-200 bg-transparent px-3 text-[1.5rem] outline-none placeholder:text-grey-400 ${isCustomVotesLocked(option) ? "cursor-not-allowed bg-grey-100 text-grey-500" : "text-grey-900"}`}
+                                disabled={isCustomVotesLocked(option)}
+                                inputMode="numeric"
+                                placeholder="Base votes"
+                                title={
+                                    isCustomVotesLocked(option)
+                                        ? "Custom votes are locked once set"
+                                        : "Custom votes (optional, admin only, cannot be changed once set)"
+                                }
+                                type="text"
+                                value={draftCustomVotes[index] ?? ""}
+                                onChange={(event) =>
+                                    handleCustomVotesChange(index, event)
+                                }
+                            />
+                        )}
                         <button
                             className={`flex size-8 items-center justify-center rounded-full border-0 bg-transparent text-grey-500 transition ${!isOptionsStructureLocked && options.length > 2 ? "hover:text-grey-900" : "cursor-not-allowed opacity-40"}`}
                             disabled={isOptionsStructureLocked || options.length <= 2}
@@ -1410,6 +1527,12 @@ export function PollNodeComponent({
             {isOptionsStructureLocked && (
                 <div className="mt-2 text-[1.35rem] text-[#9FA0A4]">
                     Options can no longer be added or removed after the poll is created.
+                </div>
+            )}
+
+            {canManageSeedVotes === true && (
+                <div className="mt-2 text-[1.35rem] text-[#9FA0A4]">
+                    Base votes are optional and added on top of real votes. Once set, they cannot be changed.
                 </div>
             )}
 

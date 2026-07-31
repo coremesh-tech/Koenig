@@ -12,13 +12,24 @@ function createOptionId() {
     return `opt_${uuid.replace(/-/g, '').slice(0, 8)}`;
 }
 
+function normalizeCustomVoteCount(value) {
+    if (value === undefined || value === null || value === '') {
+        return null;
+    }
+
+    const count = Number(value);
+    return Number.isInteger(count) && count >= 0 ? count : null;
+}
+
 function cloneOption(option = {}, index = 0) {
     return {
         id: typeof option.id === 'string' && option.id.trim() ? option.id.trim() : createOptionId(),
         text: typeof option.text === 'string' ? option.text : '',
         voteCount: Number(option.voteCount ?? option.vote_count ?? 0),
         voteRate: Number(option.voteRate ?? option.vote_rate ?? 0),
-        sortOrder: Number(option.sortOrder ?? option.sort_order ?? index)
+        sortOrder: Number(option.sortOrder ?? option.sort_order ?? index),
+        // 自定义票数 (seed 票, 仅管理员可配置); null = 未设置, 设置后不可修改
+        customVoteCount: normalizeCustomVoteCount(option.customVoteCount ?? option.custom_vote_count)
     };
 }
 
