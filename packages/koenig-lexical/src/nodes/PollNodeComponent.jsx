@@ -390,6 +390,10 @@ export function PollNodeComponent({
     // 是否允许配置自定义票数 (仅 admin/owner); null = 权限未知, 先不渲染输入框
     const [canManageSeedVotes, setCanManageSeedVotes] = React.useState(null);
     const seedPermissionFetchedRef = React.useRef(false);
+    // 已在服务端设置过自定义票数的选项 id 集合 (锁定判定以服务端为准;
+    // 不能用节点本地的 customVoteCount, 否则历史 poll 一输入就会被误判为锁定)
+    const [lockedCustomVoteOptionIds, setLockedCustomVoteOptionIds] =
+        React.useState(() => new Set());
     const [isEndDateInputActive, setIsEndDateInputActive] =
         React.useState(false);
     const [endDatePickerValue, setEndDatePickerValue] = React.useState(() =>
@@ -472,6 +476,30 @@ export function PollNodeComponent({
             });
     }, [cardConfig, isEditing, pollId, status]);
 
+    // 编辑已创建的 poll 时 (如直接加载进编辑态, 没经过预览的 syncPollData),
+    // 拉一次服务端数据初始化自定义票数的锁定集合
+    React.useEffect(() => {
+        if (!pollId || (Boolean(pollId) && status === "published" && !isEditing)) {
+            return;
+        }
+
+        getAdminPoll(pollId, cardConfig)
+            .then((poll) => {
+                setLockedCustomVoteOptionIds(
+                    new Set(
+                        (poll?.options || [])
+                            .filter(
+                                (option) =>
+                                    option.custom_vote_count !== null &&
+                                    option.custom_vote_count !== undefined,
+                            )
+                            .map((option) => option.id),
+                    ),
+                );
+            })
+            .catch(() => {});
+    }, [cardConfig, isEditing, pollId, status]);
+
     React.useEffect(() => {
         if (!isSelected) {
             setMenuOpen(false);
@@ -548,6 +576,21 @@ export function PollNodeComponent({
                           total_votes: fallback.total_votes ?? totalVotes,
                           options: fallback.options || [],
                       };
+
+            // 以服务端返回为准刷新"已设置自定义票数"的锁定集合
+            if (pollResponse.status === "fulfilled") {
+                setLockedCustomVoteOptionIds(
+                    new Set(
+                        (pollResponse.value?.options || [])
+                            .filter(
+                                (option) =>
+                                    option.custom_vote_count !== null &&
+                                    option.custom_vote_count !== undefined,
+                            )
+                            .map((option) => option.id),
+                    ),
+                );
+            }
 
             const optionVotes = buildOptionVoteMap(votes.options || []);
             const normalizedOptions = (
@@ -720,13 +763,11 @@ export function PollNodeComponent({
         commitOptionText(index, nextValue);
     };
 
-    // 自定义票数: 已设置过 (服务端已有值) 的选项锁定, 不可二次编辑
+    // 自定义票数: 已设置过 (服务端已有值) 的选项锁定, 不可二次编辑;
+    // 历史 poll 上尚未设置的选项依旧可以补设
     const isCustomVotesLocked = React.useCallback(
-        (option) =>
-            Boolean(pollId) &&
-            option.customVoteCount !== null &&
-            option.customVoteCount !== undefined,
-        [pollId],
+        (option) => Boolean(pollId) && lockedCustomVoteOptionIds.has(option.id),
+        [pollId, lockedCustomVoteOptionIds],
     );
 
     const handleCustomVotesChange = (index, event) => {
@@ -1043,6 +1084,19 @@ export function PollNodeComponent({
         try {
             const saveResponse = await saveAdminPoll(payload, cardConfig);
             const nextPollId = saveResponse.poll_id || pollId;
+
+            // 本次新提交的自定义票数立即锁定 (随后 syncPollData 会以服务端为准覆盖)
+            const submittedSeedOptionIds = preparedOptions
+                .filter((option) => option.custom_vote_count !== undefined)
+                .map((option) => option.id);
+            if (submittedSeedOptionIds.length > 0) {
+                setLockedCustomVoteOptionIds((currentIds) => {
+                    const nextIds = new Set(currentIds);
+                    submittedSeedOptionIds.forEach((id) => nextIds.add(id));
+                    return nextIds;
+                });
+            }
+
             const publishResponse = nextPollId
                 ? await publishAdminPoll(nextPollId, cardConfig)
                 : null;
@@ -1163,13 +1217,9 @@ export function PollNodeComponent({
             return;
         }
 
-        if (previewSyncPollIdRef.current === pollId) {
-            return;
-        }
+        const isFirstSync = previewSyncPollIdRef.current !== pollId;
 
-        previewSyncPollIdRef.current = pollId;
-        setTrendsResponse(null);
-        syncPollData(pollId)
+        const refresh = () => syncPollData(pollId)
             .then(({poll}) => {
                 const lifecycleWindow = buildTrendsQueryWindow({
                     expiresAt: poll?.expires_at,
@@ -1184,8 +1234,20 @@ export function PollNodeComponent({
                     });
             })
             .catch(() => {
-                setTrendsResponse(null);
+                if (isFirstSync) {
+                    setTrendsResponse(null);
+                }
             });
+
+        if (isFirstSync) {
+            previewSyncPollIdRef.current = pollId;
+            setTrendsResponse(null);
+            refresh();
+        }
+
+        // 票数/走势随时间变化(如自定义票数按时间轴逐步生效), 预览态周期刷新
+        const timer = setInterval(refresh, 10_000);
+        return () => clearInterval(timer);
     }, [cardConfig, pollId, showPreview, syncPollData]);
 
     if (showPreview) {
