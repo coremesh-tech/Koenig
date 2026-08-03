@@ -379,21 +379,17 @@ export function PollNodeComponent({
     const [draftOptions, setDraftOptions] = React.useState(() =>
         options.map((option) => option.text),
     );
-    // 自定义票数草稿 (与 draftOptions 平行的 string[]; "" = 未设置)
+    // 自定义票数草稿 (与 draftOptions 平行的 string[]; "" = 本次不追加)
+    // attempt 语义: 每次填的是"本次追加"的票数, 保存后清空, 可多次追加不同票形
     const [draftCustomVotes, setDraftCustomVotes] = React.useState(() =>
-        options.map((option) =>
-            option.customVoteCount === null || option.customVoteCount === undefined
-                ? ""
-                : String(option.customVoteCount),
-        ),
+        options.map(() => ""),
     );
     // 是否允许配置自定义票数 (仅 admin/owner); null = 权限未知, 先不渲染输入框
     const [canManageSeedVotes, setCanManageSeedVotes] = React.useState(null);
     const seedPermissionFetchedRef = React.useRef(false);
-    // 已在服务端设置过自定义票数的选项 id 集合 (锁定判定以服务端为准;
-    // 不能用节点本地的 customVoteCount, 否则历史 poll 一输入就会被误判为锁定)
-    const [lockedCustomVoteOptionIds, setLockedCustomVoteOptionIds] =
-        React.useState(() => new Set());
+    // 各选项已累计追加的自定义票数 (以服务端返回为准, 仅展示用)
+    const [seedTotalsByOptionId, setSeedTotalsByOptionId] =
+        React.useState(() => new Map());
     const [isEndDateInputActive, setIsEndDateInputActive] =
         React.useState(false);
     const [endDatePickerValue, setEndDatePickerValue] = React.useState(() =>
@@ -446,13 +442,9 @@ export function PollNodeComponent({
 
     React.useEffect(() => {
         setDraftOptions(options.map((option) => option.text));
-        setDraftCustomVotes(
-            options.map((option) =>
-                option.customVoteCount === null ||
-                option.customVoteCount === undefined
-                    ? ""
-                    : String(option.customVoteCount),
-            ),
+        // 追加票数草稿只随选项数量对齐, 不从节点回填 (输入中不被文本编辑打断)
+        setDraftCustomVotes((currentValues) =>
+            options.map((_, index) => currentValues[index] ?? ""),
         );
     }, [options]);
 
@@ -477,7 +469,7 @@ export function PollNodeComponent({
     }, [cardConfig, isEditing, pollId, status]);
 
     // 编辑已创建的 poll 时 (如直接加载进编辑态, 没经过预览的 syncPollData),
-    // 拉一次服务端数据初始化自定义票数的锁定集合
+    // 拉一次服务端数据初始化"已累计追加票数"的展示
     React.useEffect(() => {
         if (!pollId || (Boolean(pollId) && status === "published" && !isEditing)) {
             return;
@@ -485,15 +477,11 @@ export function PollNodeComponent({
 
         getAdminPoll(pollId, cardConfig)
             .then((poll) => {
-                setLockedCustomVoteOptionIds(
-                    new Set(
+                setSeedTotalsByOptionId(
+                    new Map(
                         (poll?.options || [])
-                            .filter(
-                                (option) =>
-                                    option.custom_vote_count !== null &&
-                                    option.custom_vote_count !== undefined,
-                            )
-                            .map((option) => option.id),
+                            .filter((option) => Number(option.custom_vote_count) > 0)
+                            .map((option) => [option.id, Number(option.custom_vote_count)]),
                     ),
                 );
             })
@@ -577,17 +565,13 @@ export function PollNodeComponent({
                           options: fallback.options || [],
                       };
 
-            // 以服务端返回为准刷新"已设置自定义票数"的锁定集合
+            // 以服务端返回为准刷新"已累计追加票数"的展示
             if (pollResponse.status === "fulfilled") {
-                setLockedCustomVoteOptionIds(
-                    new Set(
+                setSeedTotalsByOptionId(
+                    new Map(
                         (pollResponse.value?.options || [])
-                            .filter(
-                                (option) =>
-                                    option.custom_vote_count !== null &&
-                                    option.custom_vote_count !== undefined,
-                            )
-                            .map((option) => option.id),
+                            .filter((option) => Number(option.custom_vote_count) > 0)
+                            .map((option) => [option.id, Number(option.custom_vote_count)]),
                     ),
                 );
             }
@@ -763,13 +747,8 @@ export function PollNodeComponent({
         commitOptionText(index, nextValue);
     };
 
-    // 自定义票数: 已设置过 (服务端已有值) 的选项锁定, 不可二次编辑;
-    // 历史 poll 上尚未设置的选项依旧可以补设
-    const isCustomVotesLocked = React.useCallback(
-        (option) => Boolean(pollId) && lockedCustomVoteOptionIds.has(option.id),
-        [pollId, lockedCustomVoteOptionIds],
-    );
-
+    // 自定义票数 (attempt 语义): 输入的是"本次追加"的票数, 只存本地草稿,
+    // 保存时作为新批次提交, 提交后清空; 同一选项可多次追加不同票形
     const handleCustomVotesChange = (index, event) => {
         const rawValue = event.target.value;
         // 只允许空串或非负整数
@@ -782,19 +761,6 @@ export function PollNodeComponent({
             nextValues[index] = rawValue;
             return nextValues;
         });
-
-        const nextOptions = options.map((option, optionIndex) => {
-            if (optionIndex !== index) {
-                return option;
-            }
-
-            return {
-                ...option,
-                customVoteCount: rawValue === "" ? null : Number(rawValue),
-            };
-        });
-
-        updateNode((node) => node.setOptions(nextOptions));
     };
 
     const handleAddOption = () => {
@@ -1025,11 +991,11 @@ export function PollNodeComponent({
                     sort_order: index,
                 };
 
-                // 自定义票数: 仅管理员、仅"本次新设置"的值才随 payload 提交;
-                // 已锁定的选项不回传, 由服务端保留原值 (服务端也会强制拒绝修改).
-                if (canManageSeedVotes && !isCustomVotesLocked(option)) {
+                // 自定义票数 (attempt): 仅管理员; 本次填写的追加量 > 0 才随 payload 提交,
+                // 服务端按新批次累加注入
+                if (canManageSeedVotes) {
                     const draftValue = draftCustomVotes[index] ?? "";
-                    if (draftValue !== "") {
+                    if (draftValue !== "" && Number(draftValue) > 0) {
                         prepared.custom_vote_count = Number(draftValue);
                     }
                 }
@@ -1085,16 +1051,23 @@ export function PollNodeComponent({
             const saveResponse = await saveAdminPoll(payload, cardConfig);
             const nextPollId = saveResponse.poll_id || pollId;
 
-            // 本次新提交的自定义票数立即锁定 (随后 syncPollData 会以服务端为准覆盖)
-            const submittedSeedOptionIds = preparedOptions
-                .filter((option) => option.custom_vote_count !== undefined)
-                .map((option) => option.id);
-            if (submittedSeedOptionIds.length > 0) {
-                setLockedCustomVoteOptionIds((currentIds) => {
-                    const nextIds = new Set(currentIds);
-                    submittedSeedOptionIds.forEach((id) => nextIds.add(id));
-                    return nextIds;
+            // 本次追加已提交: 乐观累加到"已累计"展示并清空草稿
+            // (随后 syncPollData 会以服务端为准覆盖)
+            const submittedSeedOptions = preparedOptions.filter(
+                (option) => option.custom_vote_count !== undefined,
+            );
+            if (submittedSeedOptions.length > 0) {
+                setSeedTotalsByOptionId((currentTotals) => {
+                    const nextTotals = new Map(currentTotals);
+                    submittedSeedOptions.forEach((option) => {
+                        nextTotals.set(
+                            option.id,
+                            Number(nextTotals.get(option.id) || 0) + option.custom_vote_count,
+                        );
+                    });
+                    return nextTotals;
                 });
+                setDraftCustomVotes(options.map(() => ""));
             }
 
             const publishResponse = nextPollId
@@ -1124,9 +1097,9 @@ export function PollNodeComponent({
                         sortOrder: index,
                         voteCount: 0,
                         voteRate: 0,
-                        // 乐观保留自定义票数, 保存瞬间锁定状态不闪跳; 随后由 syncPollData 以服务端为准覆盖
+                        // 节点上的 customVoteCount 表示服务端已累计值, 保存瞬间沿用旧值,
+                        // 随后由 syncPollData 以服务端为准覆盖
                         customVoteCount:
-                            option.custom_vote_count ??
                             options.find((item) => item.id === option.id)?.customVoteCount ??
                             null,
                     })),
@@ -1539,22 +1512,27 @@ export function PollNodeComponent({
                             }
                         />
                         {canManageSeedVotes === true && (
-                            <input
-                                className={`h-11 w-[110px] shrink-0 rounded-lg border border-grey-200 bg-transparent px-3 text-[1.5rem] outline-none placeholder:text-grey-400 ${isCustomVotesLocked(option) ? "cursor-not-allowed bg-grey-100 text-grey-500" : "text-grey-900"}`}
-                                disabled={isCustomVotesLocked(option)}
-                                inputMode="numeric"
-                                placeholder="Base votes"
-                                title={
-                                    isCustomVotesLocked(option)
-                                        ? "Custom votes are locked once set"
-                                        : "Custom votes (optional, admin only, cannot be changed once set)"
-                                }
-                                type="text"
-                                value={draftCustomVotes[index] ?? ""}
-                                onChange={(event) =>
-                                    handleCustomVotesChange(index, event)
-                                }
-                            />
+                            <>
+                                {Number(seedTotalsByOptionId.get(option.id) || 0) > 0 && (
+                                    <span
+                                        className="shrink-0 text-[1.35rem] text-grey-500"
+                                        title="Base votes already added for this option"
+                                    >
+                                        +{formatVoteCount(seedTotalsByOptionId.get(option.id))}
+                                    </span>
+                                )}
+                                <input
+                                    className="h-11 w-[110px] shrink-0 rounded-lg border border-grey-200 bg-transparent px-3 text-[1.5rem] text-grey-900 outline-none placeholder:text-grey-400"
+                                    inputMode="numeric"
+                                    placeholder="Add votes"
+                                    title="Votes to add in this batch (optional, admin only); each save appends a new batch"
+                                    type="text"
+                                    value={draftCustomVotes[index] ?? ""}
+                                    onChange={(event) =>
+                                        handleCustomVotesChange(index, event)
+                                    }
+                                />
+                            </>
                         )}
                         <button
                             className={`flex size-8 items-center justify-center rounded-full border-0 bg-transparent text-grey-500 transition ${!isOptionsStructureLocked && options.length > 2 ? "hover:text-grey-900" : "cursor-not-allowed opacity-40"}`}
@@ -1586,7 +1564,7 @@ export function PollNodeComponent({
 
             {canManageSeedVotes === true && (
                 <div className="mt-2 text-[1.35rem] text-[#9FA0A4]">
-                    Base votes are optional and added on top of real votes. Once set, they cannot be changed.
+                    Base votes are optional and added on top of real votes. Each save appends a new batch, so you can shape the trend over multiple rounds.
                 </div>
             )}
 
