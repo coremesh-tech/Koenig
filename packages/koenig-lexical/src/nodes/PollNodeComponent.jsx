@@ -56,6 +56,15 @@ function createOptionId() {
     return `opt_${uuid.replace(/-/g, "").slice(0, 8)}`;
 }
 
+// 自定义票数(base votes)每批次的注入速度档位, 与后端 SEED_SPEED_PRESETS 对应
+const SEED_SPEED_OPTIONS = [
+    {value: "turbo", label: "Turbo", hint: "All votes land within ~30 seconds."},
+    {value: "fast", label: "Fast", hint: "Most votes within a minute, the rest over ~30 minutes."},
+    {value: "normal", label: "Normal", hint: "Spread over roughly 4 hours."},
+    {value: "slow", label: "Slow", hint: "Spread over roughly a day."}
+];
+const DEFAULT_SEED_SPEED = "fast";
+
 function formatVoteRate(value) {
     return `${Number(value || 0).toFixed(2)}%`;
 }
@@ -390,6 +399,8 @@ export function PollNodeComponent({
     // 各选项已累计追加的自定义票数 (以服务端返回为准, 仅展示用)
     const [seedTotalsByOptionId, setSeedTotalsByOptionId] =
         React.useState(() => new Map());
+    // 本批次自定义票数的注入速度档位 (每次保存独立选择)
+    const [draftSeedSpeed, setDraftSeedSpeed] = React.useState(DEFAULT_SEED_SPEED);
     const [isEndDateInputActive, setIsEndDateInputActive] =
         React.useState(false);
     const [endDatePickerValue, setEndDatePickerValue] = React.useState(() =>
@@ -1035,6 +1046,11 @@ export function PollNodeComponent({
 
         const normalizedPollType = pollType === "multiple" ? "multiple" : "single";
 
+        // 本次是否有追加的自定义票数; 有才需要携带速度档位
+        const hasSeedVotesInBatch = preparedOptions.some(
+            (option) => option.custom_vote_count !== undefined,
+        );
+
         const payload = {
             ...(pollId ? { poll_id: pollId } : {}),
             title: trimmedTitle,
@@ -1045,6 +1061,7 @@ export function PollNodeComponent({
             poll_type: normalizedPollType,
             correct_option_ids: correctOptionIds,
             options: preparedOptions,
+            ...(hasSeedVotesInBatch ? { seed_speed: draftSeedSpeed } : {}),
         };
 
         try {
@@ -1068,6 +1085,7 @@ export function PollNodeComponent({
                     return nextTotals;
                 });
                 setDraftCustomVotes(options.map(() => ""));
+                setDraftSeedSpeed(DEFAULT_SEED_SPEED);
             }
 
             const publishResponse = nextPollId
@@ -1563,9 +1581,49 @@ export function PollNodeComponent({
             )}
 
             {canManageSeedVotes === true && (
-                <div className="mt-2 text-[1.35rem] text-[#9FA0A4]">
-                    Base votes are optional and added on top of real votes. Each save appends a new batch, so you can shape the trend over multiple rounds.
-                </div>
+                <>
+                    <div className="mt-2 text-[1.35rem] text-[#9FA0A4]">
+                        Base votes are optional and added on top of real votes. Each save appends a new batch, so you can shape the trend over multiple rounds.
+                    </div>
+
+                    <div className="mt-4">
+                        <div className="mb-2 text-[1.45rem] font-medium text-[#9FA0A4]">
+                            Base votes speed
+                        </div>
+                        <div className="relative flex items-center rounded-xl bg-white px-4 py-1 shadow-[0_1px_2px_rgba(15,23,42,0.02)]">
+                            <select
+                                className="h-11 w-full cursor-pointer appearance-none border-0 bg-transparent pr-8 text-[1.65rem] text-grey-900 outline-none"
+                                value={draftSeedSpeed}
+                                onChange={(event) => setDraftSeedSpeed(event.target.value)}
+                            >
+                                {SEED_SPEED_OPTIONS.map((speedOption) => (
+                                    <option key={speedOption.value} value={speedOption.value}>
+                                        {speedOption.label}
+                                    </option>
+                                ))}
+                            </select>
+                            <svg
+                                aria-hidden="true"
+                                className="pointer-events-none absolute right-4 size-4 text-grey-500"
+                                fill="none"
+                                viewBox="0 0 16 16"
+                            >
+                                <path
+                                    d="M4 6 L8 10 L12 6"
+                                    stroke="currentColor"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth="1.6"
+                                />
+                            </svg>
+                        </div>
+                        <div className="mt-2 text-[1.35rem] text-[#9FA0A4]">
+                            {SEED_SPEED_OPTIONS.find(
+                                (speedOption) => speedOption.value === draftSeedSpeed,
+                            )?.hint || ""}
+                        </div>
+                    </div>
+                </>
             )}
 
             <div className="mt-4">
