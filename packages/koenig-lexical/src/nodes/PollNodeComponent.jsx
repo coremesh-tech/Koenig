@@ -58,10 +58,10 @@ function createOptionId() {
 
 // 自定义票数(base votes)每批次的注入速度档位, 与后端 SEED_SPEED_PRESETS 对应
 const SEED_SPEED_OPTIONS = [
-    {value: "turbo", label: "Turbo", hint: "All votes land within ~30 seconds."},
-    {value: "fast", label: "Fast", hint: "Most votes within a minute, the rest over ~30 minutes."},
-    {value: "normal", label: "Normal", hint: "Spread over roughly 4 hours."},
-    {value: "slow", label: "Slow", hint: "Spread over roughly a day."}
+    {value: "turbo", label: "Turbo", hint: "All votes land within ~5 minutes."},
+    {value: "fast", label: "Fast", hint: "Most votes in the first 20 minutes, all done in ~1.5 hours."},
+    {value: "normal", label: "Normal", hint: "Most votes in the first 90 minutes, all done in ~8 hours."},
+    {value: "slow", label: "Slow", hint: "Spread over roughly 5 days."}
 ];
 const DEFAULT_SEED_SPEED = "fast";
 
